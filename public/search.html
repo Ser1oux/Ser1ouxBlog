@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>搜索 - Ser1oux-Blog</title>
+  <link rel="stylesheet" href="/public/dark.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      background: #0a0a0a;
+      min-height: 100vh;
+      position: relative;
+      overflow-x: hidden;
+    }
+    .bg-image {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      object-fit: cover; z-index: -1; opacity: 0.85;
+    }
+    .top-nav {
+      position: sticky; top: 16px; z-index: 100;
+      max-width: 720px; margin: 16px auto 0;
+      display: flex; align-items: center; gap: 6px;
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 18px;
+      padding: 10px 16px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+      overflow-x: auto;
+    }
+    .nav-button {
+      display: inline-flex; align-items: center;
+      color: #333; text-decoration: none;
+      padding: 8px 14px; border-radius: 12px;
+      font-size: 14px; white-space: nowrap; cursor: pointer;
+      transition: background 0.2s;
+    }
+    .nav-button:hover { background: rgba(0, 0, 0, 0.06); }
+    .container {
+      max-width: 720px; margin: 0 auto; padding: 28px 16px 60px;
+    }
+    .search-card {
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 22px;
+      padding: 26px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    }
+    .page-title { font-size: 22px; font-weight: 700; margin-bottom: 16px; color: #111; }
+    .search-bar { display: flex; gap: 10px; }
+    .search-input {
+      flex: 1; padding: 12px 16px; font-size: 15px;
+      border: 1px solid rgba(0, 0, 0, 0.15); border-radius: 14px;
+      background: rgba(255, 255, 255, 0.8); outline: none;
+      transition: border-color 0.2s;
+    }
+    .search-input:focus { border-color: rgba(0, 0, 0, 0.45); }
+    .search-btn {
+      padding: 12px 22px; font-size: 15px; border: none; border-radius: 14px;
+      background: #111; color: #fff; cursor: pointer; transition: opacity 0.2s;
+    }
+    .search-btn:hover { opacity: 0.85; }
+    .search-hint { margin-top: 10px; font-size: 13px; color: #999; }
+    .result-list { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
+    .result-item {
+      display: block; text-decoration: none; color: inherit;
+      border: 1px solid rgba(0, 0, 0, 0.08); border-radius: 16px;
+      padding: 16px 18px; transition: background 0.2s, transform 0.15s;
+      background: rgba(255, 255, 255, 0.45);
+    }
+    .result-item:hover { background: rgba(255, 255, 255, 0.85); transform: translateY(-1px); }
+    .result-title { font-size: 17px; font-weight: 650; color: #111; }
+    .result-meta { font-size: 12.5px; color: #999; margin: 4px 0 6px; }
+    .result-snippet { font-size: 13.5px; color: #666; }
+    .search-highlight { background: rgba(255, 213, 79, 0.45); border-radius: 3px; padding: 0 2px; }
+    .empty-tip { text-align: center; color: #999; padding: 30px 0; font-size: 14px; }
+    @media (max-width: 640px) {
+      .search-bar { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <img class="bg-image" id="bgImage" src="/BG/BG.jpg" alt="背景">
+  <nav class="top-nav">
+    <a href="/" class="nav-button">返回首页</a>
+    <a href="/archive" class="nav-button">归档</a>
+    <a href="/guestbook" class="nav-button">留言</a>
+  </nav>
+  <div class="container">
+    <div class="search-card">
+      <h1 class="page-title">站内搜索</h1>
+      <form class="search-bar" id="searchForm">
+        <input class="search-input" id="searchInput" type="text" placeholder="搜索标题、标签或正文…" maxlength="60" autocomplete="off">
+        <button class="search-btn" type="submit">搜索</button>
+      </form>
+      <div class="search-hint">支持标题 / 分类 / 标签 / 正文全文检索</div>
+      <div class="result-list" id="resultList"></div>
+    </div>
+  </div>
+  <script>
+    const esc = (t) => {
+      const div = document.createElement('div');
+      div.textContent = t == null ? '' : String(t);
+      return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    };
+    // 命中关键词高亮（先转义再包高亮，防止 XSS）
+    function highlight(text, q) {
+      const safe = esc(text);
+      if (!q) return safe;
+      const eq = esc(q).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return safe.replace(new RegExp(eq, 'gi'), (m) => `<span class="search-highlight">${m}</span>`);
+    }
+
+    async function doSearch(q) {
+      const list = document.getElementById('resultList');
+      if (!q || !q.trim()) { list.innerHTML = ''; return; }
+      list.innerHTML = '<div class="empty-tip">搜索中…</div>';
+      try {
+        const res = await fetch('/api/search?q=' + encodeURIComponent(q.trim()));
+        const data = await res.json();
+        if (!data.results || data.results.length === 0) {
+          list.innerHTML = '<div class="empty-tip">没有找到相关文章</div>';
+          return;
+        }
+        list.innerHTML = data.results.map(p => {
+          const date = p.date ? new Date(p.date).toLocaleDateString('zh-CN') : '';
+          const tags = (p.tags || []).map(t => `#${esc(t)}`).join(' ');
+          const meta = [date, p.category ? esc(p.category) : '', tags].filter(Boolean).join(' · ');
+          const snippet = p.snippet ? `<div class="result-snippet">${highlight(p.snippet, q)}</div>` : '';
+          return `<a class="result-item" href="/post/${encodeURIComponent(p.slug)}">
+            <div class="result-title">${highlight(p.title, q)}</div>
+            <div class="result-meta">${meta}</div>
+            ${snippet}
+          </a>`;
+        }).join('');
+      } catch (e) {
+        list.innerHTML = '<div class="empty-tip">搜索失败，请稍后再试</div>';
+      }
+    }
+
+    document.getElementById('searchForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const q = document.getElementById('searchInput').value.trim();
+      const url = q ? '/search?q=' + encodeURIComponent(q) : '/search';
+      history.replaceState(null, '', url);
+      doSearch(q);
+    });
+    // 支持 /search?q=xxx 直达
+    const initialQ = new URLSearchParams(location.search).get('q');
+    if (initialQ) {
+      document.getElementById('searchInput').value = initialQ;
+      doSearch(initialQ);
+    }
+    // 站点引导（背景/标题），与全站一致
+    (async () => {
+      try {
+        const res = await fetch('/api/settings');
+        if (res.ok) {
+          const s = await res.json();
+          if (s.customBackground) document.getElementById('bgImage').src = s.customBackground;
+          if (s.siteName) document.title = `搜索 - ${s.siteName}`;
+        }
+      } catch (e) { /* 忽略 */ }
+    })();
+  </script>
+</body>
+</html>

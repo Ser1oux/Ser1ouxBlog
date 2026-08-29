@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" href="/BG/favicon.svg?v=cute1" type="image/svg+xml">
+  <link rel="icon" href="/BG/favicon.png?v=cute1" type="image/png">
+  <link rel="apple-touch-icon" href="/BG/favicon.png?v=cute1">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>个人中心 - Ser1oux-Blog</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+      background: #0a0a0a;
+      min-height: 100vh;
+      position: relative;
+    }
+
+    .bg-image {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 0;
+      opacity: 0.85;
+    }
+
+    .bg-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.6) 100%);
+      z-index: 1;
+    }
+
+    .top-nav {
+      position: fixed;
+      top: 2em;
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 40px);
+      max-width: 760px;
+      z-index: 99;
+      display: flex;
+      gap: 10px;
+    }
+
+    .nav-button {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(20px);
+      border: none;
+      border-radius: 12px;
+      padding: 12px 24px;
+      color: #000;
+      text-decoration: none;
+      font-size: 0.95rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    }
+
+    .nav-button:hover {
+      background: white;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+    }
+
+    .container {
+      position: relative;
+      z-index: 2;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 140px 20px 40px;
+    }
+
+    .profile-card {
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(30px) saturate(180%);
+      -webkit-backdrop-filter: blur(30px) saturate(180%);
+      border-radius: 20px;
+      padding: 40px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      box-shadow: 0 12px 48px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(255, 255, 255, 0.1) inset;
+      margin-bottom: 20px;
+    }
+
+    .profile-header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    .profile-title {
+      font-size: 1.8rem;
+      font-weight: 600;
+      color: #000;
+      margin-bottom: 10px;
+    }
+
+    .avatar-section {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+
+    .avatar-preview {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      object-fit: cover;
+      margin: 0 auto 20px;
+      display: block;
+      border: 4px solid rgba(0, 0, 0, 0.1);
+    }
+
+    .avatar-upload-btn {
+      display: inline-block;
+      padding: 10px 20px;
+      background: rgba(0, 0, 0, 0.08);
+      border: none;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .avatar-upload-btn:hover {
+      background: rgba(0, 0, 0, 0.12);
+    }
+
+    .form-group {
+      margin-bottom: 25px;
+    }
+
+    .form-label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 0.95rem;
+      font-weight: 500;
+      color: #333;
+    }
+
+    .form-input {
+      width: 100%;
+      padding: 12px 15px;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      border-radius: 10px;
+      font-size: 0.95rem;
+      transition: all 0.3s;
+      background: rgba(255, 255, 255, 0.8);
+    }
+
+    .form-input:focus {
+      outline: none;
+      border-color: #000;
+      background: white;
+    }
+
+    .form-input:disabled {
+      background: rgba(0, 0, 0, 0.05);
+      cursor: not-allowed;
+    }
+
+    .save-btn {
+      width: 100%;
+      padding: 14px;
+      background: #000;
+      color: white;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .save-btn:hover {
+      background: #333;
+    }
+
+    .save-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .verify-btn {
+      padding: 10px 20px;
+      background: rgba(0, 0, 0, 0.08);
+      color: #000;
+      border: 2px solid rgba(0, 0, 0, 0.1);
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.3s;
+      white-space: nowrap;
+    }
+
+    .verify-btn:hover {
+      background: rgba(0, 0, 0, 0.12);
+      border-color: #000;
+    }
+
+    .verify-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .error-message {
+      background: #fee;
+      color: #c33;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      margin-bottom: 20px;
+      display: none;
+    }
+
+    .success-message {
+      background: #efe;
+      color: #3c3;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      margin-bottom: 20px;
+      display: none;
+    }
+
+    .user-info {
+      background: rgba(0, 0, 0, 0.03);
+      padding: 15px;
+      border-radius: 10px;
+      margin-bottom: 30px;
+    }
+
+    .user-info-item {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      font-size: 0.9rem;
+    }
+
+    .user-info-label {
+      color: #666;
+    }
+
+    .user-info-value {
+      color: #000;
+      font-weight: 500;
+    }
+
+    .section-divider {
+      height: 1px;
+      background: rgba(0, 0, 0, 0.1);
+      margin: 30px 0;
+    }
+
+    .section-title {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: #000;
+      margin-bottom: 20px;
+    }
+
+    #avatarInput {
+      display: none;
+    }
+    
+    /* 移动端优化 */
+    @media (max-width: 768px) {
+      .top-nav {
+        top: 1em;
+        width: calc(100% - 30px);
+      }
+      
+      .nav-button {
+        padding: 10px 18px;
+        font-size: 0.9rem;
+        border-radius: 12px;
+      }
+      
+      .container {
+        padding: 100px 15px 40px;
+      }
+      
+      .profile-card {
+        padding: 30px 25px;
+        border-radius: 16px;
+      }
+      
+      .profile-title {
+        font-size: 2rem;
+      }
+      
+      .user-info {
+        flex-direction: column;
+        gap: 15px;
+      }
+      
+      .user-info-item {
+        width: 100%;
+        padding: 15px;
+      }
+      
+      .avatar-preview {
+        width: 100px;
+        height: 100px;
+      }
+      
+      .form-input, .form-textarea {
+        font-size: 1rem;
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .nav-button {
+        padding: 8px 16px;
+        font-size: 0.85rem;
+      }
+      
+      .container {
+        padding: 85px 12px 30px;
+      }
+      
+      .profile-card {
+        padding: 25px 20px;
+        border-radius: 14px;
+      }
+      
+      .profile-title {
+        font-size: 1.75rem;
+      }
+      
+      .avatar-preview {
+        width: 80px;
+        height: 80px;
+      }
+      
+      .avatar-upload-btn {
+        padding: 10px 20px;
+        font-size: 0.9rem;
+      }
+      
+      .form-label {
+        font-size: 0.9rem;
+      }
+      
+      .form-input, .form-textarea {
+        font-size: 0.95rem;
+        padding: 10px 14px;
+      }
+      
+      .btn-primary, .btn-secondary {
+        padding: 12px 24px;
+        font-size: 0.95rem;
+      }
+    }
+    
+    /* 移除所有按钮和可点击元素的焦点轮廓 */
+    button, a, input, select, textarea, [role="button"], [tabindex], .nav-button, .form-button {
+      outline: none !important;
+      -webkit-tap-highlight-color: transparent !important;
+    }
+    
+    button:focus, a:focus, input:focus, select:focus, textarea:focus, [role="button"]:focus, [tabindex]:focus, .nav-button:focus, .form-button:focus {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+  </style>
+  <link rel="stylesheet" href="/public/dark.css">
+</head>
+<body>
+  <img class="bg-image" id="bgImage" src="/BG/BG.jpg" alt="背景">
+  <div class="bg-overlay"></div>
+
+  <div class="top-nav">
+    <a href="/" class="nav-button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;">
+        <polyline points="15 18 9 12 15 6"></polyline>
+      </svg>
+      <span>返回首页</span>
+    </a>
+  </div>
+
+  <div class="container">
+    <div class="profile-card">
+      <div class="profile-header">
+        <h1 class="profile-title">个人中心</h1>
+      </div>
+
+      <div class="error-message" id="errorMessage"></div>
+      <div class="success-message" id="successMessage"></div>
+
+      <div class="user-info">
+        <div class="user-info-item">
+          <span class="user-info-label">用户ID</span>
+          <span class="user-info-value" id="userId">-</span>
+        </div>
+        <div class="user-info-item">
+          <span class="user-info-label">注册时间</span>
+          <span class="user-info-value" id="createdAt">-</span>
+        </div>
+        <div class="user-info-item">
+          <span class="user-info-label">账户类型</span>
+          <span class="user-info-value" id="userType">-</span>
+        </div>
+      </div>
+
+      <div class="avatar-section">
+        <img class="avatar-preview" id="avatarPreview" src="/BG/icon.jpg" alt="头像">
+        <input type="file" id="avatarInput" accept="image/*">
+        <button class="avatar-upload-btn" onclick="document.getElementById('avatarInput').click()">
+          更换头像
+        </button>
+      </div>
+
+      <div class="section-divider"></div>
+
+      <form id="profileForm">
+        <div class="form-group">
+          <label class="form-label">邮箱</label>
+          <input type="email" class="form-input" id="email" disabled>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">用户名</label>
+          <input type="text" class="form-input" id="username" required maxlength="20">
+          <p class="password-hint" style="margin-top:8px;color:#888;font-size:0.85rem;">用于登录，3-20个字符，不能与他人重复</p>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">昵称</label>
+          <input type="text" class="form-input" id="nickname" placeholder="设置您的昵称">
+        </div>
+
+        <button type="submit" class="save-btn">保存修改</button>
+      </form>
+
+      <div class="section-divider"></div>
+
+      <h3 style="font-size: 1.2rem; font-weight: 600; margin-bottom: 20px; color: #000;">修改密码</h3>
+      <form id="passwordForm">
+        <div class="form-group">
+          <label class="form-label">验证邮箱</label>
+          <div style="display: flex; gap: 12px;">
+            <input type="text" class="form-input" id="verifyCode" placeholder="输入验证码" style="flex: 1;">
+            <button type="button" class="verify-btn" id="sendCodeBtn" onclick="sendVerifyCode()">发送验证码</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">新密码</label>
+          <input type="password" class="form-input" id="newPassword" placeholder="输入新密码" minlength="6">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">确认新密码</label>
+          <input type="password" class="form-input" id="confirmPassword" placeholder="再次输入新密码" minlength="6">
+        </div>
+
+        <button type="submit" class="save-btn">修改密码</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const errorMessage = document.getElementById('errorMessage');
+    const successMessage = document.getElementById('successMessage');
+    const avatarInput = document.getElementById('avatarInput');
+    const avatarPreview = document.getElementById('avatarPreview');
+
+    let currentUser = null;
+
+    // 加载用户信息
+    async function loadUserInfo() {
+      try {
+        const response = await fetch('/api/user-info');
+        if (!response.ok) {
+          window.location.href = '/login';
+          return;
+        }
+
+        currentUser = await response.json();
+        
+        // 填充用户信息
+        document.getElementById('userId').textContent = currentUser.id.substring(0, 8);
+        document.getElementById('createdAt').textContent = new Date(currentUser.createdAt).toLocaleDateString('zh-CN');
+        document.getElementById('userType').textContent = currentUser.isAdmin ? '管理员' : '普通用户';
+        document.getElementById('email').value = currentUser.email;
+        document.getElementById('username').value = currentUser.username;
+        document.getElementById('nickname').value = currentUser.nickname || '';
+        
+        // 设置头像，如果用户没有头像则使用默认头像
+        avatarPreview.src = currentUser.avatar || '/BG/icon.jpg';
+        
+        // 如果默认头像加载失败，使用一个备用方案
+        avatarPreview.onerror = function() {
+          this.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSIxMDAiIGhlaWdodD0iMTAwIiBmaWxsPSIjZjNmNGY2Ii8+CjxjaXJjbGUgY3g9IjUwIiBjeT0iMzciIHI9IjE4IiBmaWxsPSIjOWNhM2FmIi8+CjxwYXRoIGQ9Ik0yMCA4MEM0MCA2NSA2MCA2NSA4MCA4MFY5MEgyMFY4MFoiIGZpbGw9IiM5Y2EzYWYiLz4KPC9zdmc+';
+          this.onerror = null; // 防止无限循环
+        };
+      } catch (error) {
+        showError('加载用户信息失败');
+      }
+    }
+
+    // 规范化头像 URL（去掉域名，只保留路径）
+    function normalizeAvatarUrl(src) {
+      if (!src) return '';
+      try {
+        if (src.startsWith('/uploads/') || src.startsWith('/api/default-avatar')) {
+          return src;
+        }
+        const u = new URL(src, window.location.origin);
+        if (u.origin === window.location.origin) {
+          const path = u.pathname + u.search;
+          if (path.startsWith('/uploads/') || path.startsWith('/api/default-avatar')) {
+            return path;
+          }
+        }
+      } catch (e) {}
+      return '';
+    }
+
+    // 头像上传（普通登录用户可用）
+    avatarInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      if (file.size > 5 * 1024 * 1024) {
+        showError('图片大小不能超过5MB');
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const response = await fetch('/api/upload-avatar', {
+          method: 'POST',
+          credentials: 'same-origin',
+          body: formData
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (response.ok && data.url) {
+          avatarPreview.src = data.url;
+          showSuccess('头像上传成功，请点击保存');
+        } else {
+          showError(data.error || (await response.text().catch(() => '')) || '头像上传失败');
+        }
+      } catch (error) {
+        showError('头像上传失败');
+      }
+    });
+
+    // 保存修改
+    document.getElementById('profileForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const username = document.getElementById('username').value.trim();
+      const nickname = document.getElementById('nickname').value.trim();
+      const avatar = normalizeAvatarUrl(avatarPreview.src);
+
+      try {
+        const response = await fetch('/api/user-profile', {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, nickname, avatar })
+        });
+
+        const data = await response.json();
+        if (response.ok) {
+          showSuccess('保存成功');
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
+        } else {
+          showError(data.error || '保存失败');
+        }
+      } catch (error) {
+        showError('保存失败，请稍后重试');
+      }
+    });
+
+    function showError(message) {
+      errorMessage.textContent = message;
+      errorMessage.style.display = 'block';
+      successMessage.style.display = 'none';
+    }
+
+    function showSuccess(message) {
+      successMessage.textContent = message;
+      successMessage.style.display = 'block';
+      errorMessage.style.display = 'none';
+    }
+
+    // 加载背景
+    async function loadSettings() {
+      try {
+        const response = await fetch('/api/settings');
+        if (response.ok) {
+          const settings = await response.json();
+          if (settings.customBackground) {
+            document.getElementById('bgImage').src = settings.customBackground;
+          }
+        }
+      } catch (error) {
+        console.log('使用默认背景');
+      }
+    }
+
+    // 发送验证码
+    let countdown = 0;
+    
+    async function sendVerifyCode() {
+      if (countdown > 0) return;
+      
+      const btn = document.getElementById('sendCodeBtn');
+      const email = document.getElementById('email').value.trim();
+      
+      if (!email) {
+        showError('请先登录');
+        return;
+      }
+      
+      try {
+        btn.disabled = true;
+        
+        const response = await fetch('/api/send-verification-code', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            email: email,
+            type: 'password-reset'
+          })
+        });
+        
+        if (response.ok) {
+          showSuccess('验证码已发送到您的邮箱');
+          countdown = 60;
+          updateCountdown();
+        } else {
+          const error = await response.text();
+          showError(error || '发送失败');
+          btn.disabled = false;
+        }
+      } catch (error) {
+        showError('发送失败: ' + error.message);
+        btn.disabled = false;
+      }
+    }
+    
+    function updateCountdown() {
+      const btn = document.getElementById('sendCodeBtn');
+      if (countdown > 0) {
+        btn.textContent = `${countdown}秒后重试`;
+        countdown--;
+        setTimeout(updateCountdown, 1000);
+      } else {
+        btn.textContent = '发送验证码';
+        btn.disabled = false;
+      }
+    }
+    
+    // 修改密码
+    document.getElementById('passwordForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      
+      const code = document.getElementById('verifyCode').value.trim();
+      const newPassword = document.getElementById('newPassword').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+      
+      if (!code) {
+        showError('请输入验证码');
+        return;
+      }
+      
+      if (!newPassword || newPassword.length < 6) {
+        showError('密码长度至少6位');
+        return;
+      }
+      
+      if (newPassword !== confirmPassword) {
+        showError('两次输入的密码不一致');
+        return;
+      }
+      
+      try {
+        const response = await fetch('/api/change-password', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            email: document.getElementById('email').value,
+            code: code,
+            newPassword: newPassword
+          })
+        });
+        
+        if (response.ok) {
+          showSuccess('密码修改成功！');
+          document.getElementById('passwordForm').reset();
+        } else {
+          const error = await response.text();
+          showError(error || '修改失败');
+        }
+      } catch (error) {
+        showError('修改失败: ' + error.message);
+      }
+    });
+
+    loadSettings();
+    loadUserInfo();
+  </script>
+</body>
+</html>
+

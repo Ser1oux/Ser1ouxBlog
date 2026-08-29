@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="site icon">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f3e8ff"/>
+      <stop offset="100%" stop-color="#dbeafe"/>
+    </linearGradient>
+    <linearGradient id="fur" x1="30%" y1="20%" x2="70%" y2="90%">
+      <stop offset="0%" stop-color="#fff7ed"/>
+      <stop offset="100%" stop-color="#fdba74"/>
+    </linearGradient>
+  </defs>
+
+  <!-- soft tile -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#bg)"/>
+  <rect x="3.5" y="3.5" width="57" height="57" rx="14.5" fill="none" stroke="#e9d5ff" stroke-width="1.5"/>
+
+  <!-- ears -->
+  <path d="M18 28c0-8 4-14 8-16 1.2 3.5 1.5 7 1.2 11z" fill="#fdba74" stroke="#9a3412" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M46 28c0-8-4-14-8-16-1.2 3.5-1.5 7-1.2 11z" fill="#fdba74" stroke="#9a3412" stroke-width="1.4" stroke-linejoin="round"/>
+  <path d="M20.2 25c1.2-4 3.2-7.2 5-8.6" fill="none" stroke="#fb7185" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M43.8 25c-1.2-4-3.2-7.2-5-8.6" fill="none" stroke="#fb7185" stroke-width="2.2" stroke-linecap="round"/>
+
+  <!-- face -->
+  <circle cx="32" cy="36" r="16.5" fill="url(#fur)" stroke="#9a3412" stroke-width="1.6"/>
+
+  <!-- blush -->
+  <ellipse cx="22.5" cy="39" rx="3.2" ry="2" fill="#fb7185" opacity="0.45"/>
+  <ellipse cx="41.5" cy="39" rx="3.2" ry="2" fill="#fb7185" opacity="0.45"/>
+
+  <!-- eyes -->
+  <ellipse cx="25.5" cy="34.5" rx="2.6" ry="3.2" fill="#1f2937"/>
+  <ellipse cx="38.5" cy="34.5" rx="2.6" ry="3.2" fill="#1f2937"/>
+  <circle cx="26.4" cy="33.4" r="0.9" fill="#fff"/>
+  <circle cx="39.4" cy="33.4" r="0.9" fill="#fff"/>
+
+  <!-- nose + smile -->
+  <ellipse cx="32" cy="39.2" rx="1.5" ry="1.1" fill="#f472b6"/>
+  <path d="M28.5 42.5c1.1 1.5 2.5 2.2 3.5 2.2s2.4-.7 3.5-2.2" fill="none" stroke="#9a3412" stroke-width="1.4" stroke-linecap="round"/>
+
+  <!-- whiskers -->
+  <g stroke="#c2410c" stroke-width="1.1" stroke-linecap="round" opacity="0.7">
+    <path d="M14 36h7.5M14.5 40h7"/>
+    <path d="M42.5 36H50M42.5 40H49.5"/>
+  </g>
+</svg>

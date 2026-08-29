@@ -1,0 +1,247 @@
+/* 暗色模式 —— 跟随系统偏好自动启用，无手动开关。
+   设计说明：站点为“照片背景 + 白色玻璃卡片”风格，
+   暗色模式下将玻璃面替换为深色半透明面，文字/边框同步提亮。 */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+  }
+
+  /* ---------- 正文与基础文字 ---------- */
+  body {
+    color: #d8d8dc !important;
+    background: #0a0a0a !important;
+  }
+
+  h1, h2, h3, h4 {
+    color: #ececee !important;
+  }
+
+  /* ---------- 玻璃卡片表面 → 深色玻璃 ---------- */
+  .nav-card,
+  .stats-card,
+  .server-status-card,
+  .category-card,
+  .profile-card,
+  .notice-card,
+  .post-item,
+  .card-nav-content,
+  .comment-item,
+  .comment-card,
+  .message-item,
+  .message-card,
+  .search-card,
+  .form-section,
+  .system-item,
+  .user-info-item,
+  .user-menu,
+  .user-menu-item,
+  .load-item,
+  .toc-box,
+  .panel {
+    background: rgba(30, 30, 34, 0.82) !important;
+    border-color: rgba(255, 255, 255, 0.14) !important;
+    color: #d8d8dc !important;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45) !important;
+  }
+
+  .nav-card:hover {
+    background: rgba(38, 38, 42, 0.92) !important;
+    border-color: rgba(255, 255, 255, 0.22) !important;
+  }
+
+  .post-item:hover,
+  .result-item:hover {
+    background: rgba(38, 38, 42, 0.92) !important;
+  }
+
+  .result-item {
+    background: rgba(255, 255, 255, 0.06) !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+  }
+
+  .result-title {
+    color: #ececee !important;
+  }
+
+  .result-snippet,
+  .result-meta,
+  .search-hint {
+    color: #9a9aa0 !important;
+  }
+
+  /* 顶部导航 */
+  .top-nav,
+  .footer-nav {
+    background: rgba(22, 22, 26, 0.88) !important;
+    border-color: rgba(255, 255, 255, 0.12) !important;
+    color: #d8d8dc !important;
+  }
+
+  .nav-button {
+    color: #d8d8dc !important;
+    background: transparent !important;
+  }
+
+  .nav-card-label,
+  .card-title {
+    color: #ececee !important;
+  }
+
+  /* ---------- 表单控件 ---------- */
+  .form-input,
+  .comment-form textarea,
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  textarea,
+  select,
+  .search-input {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.18) !important;
+    color: #e8e8ea !important;
+  }
+
+  .form-input::placeholder,
+  textarea::placeholder,
+  .search-input::placeholder {
+    color: #8a8a90 !important;
+  }
+
+  .form-input:focus,
+  textarea:focus,
+  .search-input:focus {
+    border-color: rgba(255, 255, 255, 0.4) !important;
+  }
+
+  .form-label {
+    color: #b8b8be !important;
+  }
+
+  /* ---------- 常用灰阶文字 ---------- */
+  .post-meta,
+  .stat-item,
+  .tag,
+  .post-excerpt,
+  .excerpt,
+  .comment-meta,
+  .message-meta,
+  .post-date,
+  .post-info {
+    color: #a8a8ad !important;
+  }
+
+  [style*="color: #666"],
+  [style*="color:#666"],
+  [style*="color: #999"],
+  [style*="color:#999"] {
+    color: #9a9aa0 !important;
+  }
+
+  [style*="color: #333"],
+  [style*="color:#333"],
+  [style*="color: #111"],
+  [style*="color:#111"] {
+    color: #d8d8dc !important;
+  }
+
+  /* ---------- 边框与分隔线 ---------- */
+  hr {
+    border-color: rgba(255, 255, 255, 0.14) !important;
+  }
+
+  /* ---------- 搜索高亮 ---------- */
+  .search-highlight {
+    background: rgba(255, 213, 79, 0.35) !important;
+    color: #ffe082 !important;
+  }
+
+  /* ---------- 文章内容元素（v2 审查补充：此前漏适配） ---------- */
+  /* 引用块：浅色底 + 深灰字在深色模式下对比度不足 */
+  .post-content blockquote {
+    background: rgba(255, 255, 255, 0.06) !important;
+    color: #c2c6ce !important;
+    border-left-color: #4d9fff !important;
+  }
+  .post-content blockquote p {
+    color: #c2c6ce !important;
+  }
+  /* 表格：表头与单元格背景/边框沿用浅色系，深色下几乎不可见 */
+  .post-content th {
+    background: rgba(255, 255, 255, 0.10) !important;
+  }
+  .post-content th,
+  .post-content td {
+    border-color: rgba(255, 255, 255, 0.18) !important;
+    color: #d8d8dc !important;
+  }
+  .post-content td {
+    color: #c8c8cd !important;
+  }
+  /* 代码块复制按钮：与代码块背景同色，边界不清 */
+  .copy-code-btn {
+    background: rgba(255, 255, 255, 0.12) !important;
+    color: #d8d8dc !important;
+    border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  }
+  .copy-code-btn:hover {
+    background: rgba(255, 255, 255, 0.2) !important;
+  }
+  /* ---------- 顶栏元素（玻璃化改造补充）：深色适配 ---------- */
+  .card-nav-cta-button {
+    background: rgba(255, 255, 255, 0.12) !important;
+    color: #ececee !important;
+    border-color: rgba(255, 255, 255, 0.20) !important;
+  }
+
+  .card-nav-cta-button:hover {
+    background: rgba(255, 255, 255, 0.18) !important;
+    border-color: rgba(255, 255, 255, 0.28) !important;
+  }
+
+  .logo-container {
+    color: #f5f5f7 !important;
+  }
+
+  .hamburger-menu {
+    color: #ececee !important;
+  }
+
+  .hamburger-line {
+    background-color: #ececee !important;
+  }
+  /* ---------- 窄屏文章目录（悬浮按钮 + 底部抽屉）深色适配 ---------- */
+  .toc-fab {
+    background: rgba(40, 40, 44, 0.92) !important;
+    color: #ececee !important;
+    border-color: rgba(255, 255, 255, 0.18) !important;
+  }
+  .toc-sheet {
+    background: rgba(28, 28, 32, 0.96) !important;
+    border-color: rgba(255, 255, 255, 0.14) !important;
+  }
+  .toc-sheet-header { border-bottom-color: rgba(255, 255, 255, 0.14) !important; }
+  .toc-sheet-close {
+    background: rgba(255, 255, 255, 0.12) !important;
+    color: #ececee !important;
+  }
+  /* 顺带修复：桌面端侧栏目录链接深色下仍为深灰字，对比度不足 */
+  .toc-link { color: #c9c9ce !important; }
+  .toc-link:hover { color: #fff !important; background: rgba(255, 255, 255, 0.08) !important; }
+  /* ---------- 消息通知组件（铃铛+面板）深色适配 ---------- */
+  .gl-notify-btn {
+    background: rgba(255, 255, 255, 0.14) !important;
+    color: #ececee !important;
+  }
+  .gl-notify-panel {
+    background: rgba(28, 28, 32, 0.97) !important;
+    color: #e8e8ec !important;
+    border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  }
+  .gl-notify-head { border-bottom-color: rgba(255, 255, 255, 0.14) !important; }
+  .gl-notify-head button { color: #7ab8ff !important; }
+  .gl-notify-item { border-bottom-color: rgba(255, 255, 255, 0.08) !important; }
+  .gl-notify-item.unread { background: rgba(59, 130, 246, 0.12) !important; }
+  .gl-notify-item:hover { background: rgba(255, 255, 255, 0.06) !important; }
+  .gl-notify-body { color: #a8a8b0 !important; }
+}

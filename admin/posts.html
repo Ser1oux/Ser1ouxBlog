@@ -1,0 +1,925 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" href="/BG/favicon.svg?v=cute1" type="image/svg+xml">
+  <link rel="icon" href="/BG/favicon.png?v=cute1" type="image/png">
+  <link rel="apple-touch-icon" href="/BG/favicon.png?v=cute1">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>文章管理 - Ser1oux-Blog</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+      background: #0a0a0a;
+      line-height: 1.6;
+      position: relative;
+      min-height: 100vh;
+    }
+
+    .bg-image {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 0;
+      opacity: 0.85;
+    }
+
+    .bg-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.6) 100%);
+      z-index: 1;
+    }
+
+    /* 导航栏 - 复用首页样式 */
+    .card-nav-container {
+      position: fixed;
+      top: 2em;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90%;
+      max-width: 500px;
+      z-index: 99;
+    }
+
+    .card-nav {
+      display: block;
+      height: 60px;
+      padding: 0;
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(40px) saturate(200%);
+      -webkit-backdrop-filter: blur(40px) saturate(200%);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      border-radius: 0.75rem;
+      position: relative;
+      overflow: hidden;
+      transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .card-nav.open {
+      height: 120px;
+    }
+
+    .card-nav-top {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.5rem 0.45rem 0.55rem 1.1rem;
+      z-index: 2;
+    }
+
+    .hamburger-menu {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      gap: 6px;
+      color: #000;
+    }
+
+    .hamburger-line {
+      width: 30px;
+      height: 2px;
+      background-color: currentColor;
+      transition: transform 0.25s ease;
+      transform-origin: 50% 50%;
+    }
+
+    .hamburger-menu.open .hamburger-line:first-child {
+      transform: translateY(4px) rotate(45deg);
+    }
+
+    .hamburger-menu.open .hamburger-line:last-child {
+      transform: translateY(-4px) rotate(-45deg);
+    }
+
+    .logo-container {
+      display: flex;
+      align-items: center;
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 20px;
+      font-weight: 600;
+      color: #000;
+    }
+
+    .user-info {
+      background: rgba(0,0,0,0.05);
+      color: #333;
+      border: none;
+      border-radius: calc(0.75rem - 0.35rem);
+      padding: 0 1rem;
+      height: 100%;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      font-size: 0.9em;
+    }
+
+    .card-nav-content {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 60px;
+      bottom: 0;
+      padding: 0.5rem;
+      display: flex;
+      align-items: flex-end;
+      gap: 12px;
+      opacity: 0;
+      pointer-events: none;
+      z-index: 1;
+      transition: opacity 0.3s ease;
+    }
+
+    .card-nav.open .card-nav-content {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .nav-card {
+      height: 100%;
+      flex: 1 1 0;
+      min-width: 0;
+      border-radius: calc(0.75rem - 0.2rem);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      user-select: none;
+      transform: translateY(20px);
+      transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .card-nav.open .nav-card {
+      transform: translateY(0);
+    }
+
+    .nav-card-label {
+      font-weight: 500;
+      font-size: 18px;
+      letter-spacing: -0.5px;
+      width: 100%;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+    }
+
+    .nav-card-links {
+      margin-top: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    .nav-card-link {
+      font-size: 16px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity 0.3s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: inherit;
+    }
+
+    .nav-card-link:hover {
+      opacity: 0.75;
+    }
+
+    /* 主内容区 */
+    .container {
+      position: relative;
+      z-index: 2;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 140px 20px 60px;
+      transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .container.nav-open {
+      transform: translateY(200px);
+    }
+
+    .section {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(20px);
+      padding: 40px;
+      border-radius: 16px;
+      margin-bottom: 30px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      animation: fadeInUp 0.6s ease-out;
+    }
+
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .section h2 {
+      margin-bottom: 25px;
+      color: #1a1a1a;
+      font-size: 1.8em;
+      font-weight: 600;
+    }
+
+    .form-group {
+      margin-bottom: 20px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      color: #333;
+      font-weight: 500;
+    }
+
+    .form-group input[type="text"] {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 1em;
+      transition: all 0.3s;
+    }
+
+    .form-group input[type="text"]:focus {
+      outline: none;
+      border-color: #0066cc;
+    }
+
+    /* 标签复选框容器 */
+    .tags-checkbox-container {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 12px;
+      background: #f8f9fa;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      min-height: 60px;
+    }
+
+    .tag-checkbox-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      background: white;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+
+    .tag-checkbox-item:hover {
+      background: #e3f2fd;
+      border-color: #0066cc;
+    }
+
+    .tag-checkbox-item input[type="checkbox"] {
+      cursor: pointer;
+      width: 16px;
+      height: 16px;
+    }
+
+    .tag-checkbox-item label {
+      cursor: pointer;
+      margin: 0;
+      user-select: none;
+    }
+
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 1em;
+      transition: all 0.3s;
+      font-weight: 500;
+    }
+
+    .btn-primary {
+      background: #111;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+      background: #000;
+    }
+
+    .btn-secondary {
+      background: rgba(0,0,0,0.08);
+      color: #333;
+    }
+
+    .btn-secondary:hover {
+      background: rgba(0,0,0,0.12);
+    }
+
+    .btn-danger {
+      background: #e74c3c;
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background: #c0392b;
+    }
+
+    .editor-actions {
+      margin-top: 20px;
+      display: flex;
+      gap: 10px;
+    }
+
+    .post-list {
+      list-style: none;
+    }
+
+    .post-item {
+      padding: 20px;
+      border-bottom: 1px solid #e0e0e0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      transition: all 0.3s;
+    }
+
+    .post-item:hover {
+      background: rgba(0,0,0,0.02);
+    }
+
+    .post-item:last-child {
+      border-bottom: none;
+    }
+
+    .post-info h3 {
+      margin-bottom: 8px;
+      color: #1a1a1a;
+      font-size: 1.2em;
+      font-weight: 600;
+    }
+
+    .post-info small {
+      color: #666;
+    }
+
+    .post-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn-small {
+      padding: 8px 16px;
+      font-size: 0.9em;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #999;
+    }
+
+    .EasyMDEContainer {
+      margin-bottom: 20px;
+    }
+
+    .CodeMirror {
+      border-radius: 8px;
+      min-height: 400px;
+      background: #fff;
+      border: 2px solid #e0e0e0;
+    }
+
+    @media (max-width: 768px) {
+      .container {
+        padding: 120px 20px 40px;
+      }
+
+      .section {
+        padding: 25px 20px;
+      }
+
+      .post-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 15px;
+      }
+    }
+    
+    /* 移除所有按钮和可点击元素的焦点轮廓 */
+    button, a, input, select, textarea, [role="button"], [tabindex], .nav-card, .btn, .tag-checkbox-item, .tag-checkbox-item label, .tag-checkbox-item input, .hamburger-menu {
+      outline: none !important;
+      -webkit-tap-highlight-color: transparent !important;
+    }
+    
+    button:focus, a:focus, input:focus, select:focus, textarea:focus, [role="button"]:focus, [tabindex]:focus, .nav-card:focus, .btn:focus, .tag-checkbox-item:focus, .tag-checkbox-item label:focus, .tag-checkbox-item input:focus, .hamburger-menu:focus {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+  </style>
+</head>
+<body>
+  <img src="/BG/BG.jpg" alt="Background" class="bg-image" id="bgImage">
+  <div class="bg-overlay"></div>
+
+  <!-- 导航栏 -->
+  <div class="card-nav-container">
+    <nav class="card-nav" id="cardNav">
+      <div class="card-nav-top">
+        <div class="hamburger-menu" id="hamburgerMenu">
+          <div class="hamburger-line"></div>
+          <div class="hamburger-line"></div>
+        </div>
+
+        <div class="logo-container">
+          <span id="siteName">Ser1oux-Blog</span>
+        </div>
+
+        <a href="/" class="user-info" style="background: linear-gradient(135deg, #000000 0%, #333333 100%); color: #fff; display: flex; align-items: center; justify-content: center; text-decoration: none;">返回首页</a>
+      </div>
+
+      <div class="card-nav-content">
+        <a href="/admin/posts" class="nav-card" style="background-color: #000000; color: #fff;">
+          <div class="nav-card-label">文章</div>
+        </a>
+
+        <a href="/admin/files" class="nav-card" style="background-color: #333333; color: #fff;">
+          <div class="nav-card-label">附件</div>
+        </a>
+
+        <a href="/admin/settings" class="nav-card" style="background-color: #666666; color: #fff;">
+          <div class="nav-card-label">设置</div>
+        </a>
+      </div>
+    </nav>
+  </div>
+
+  <!-- 主内容 -->
+  <div class="container">
+    <!-- 编辑器区域 -->
+    <div class="section">
+      <h2 id="editorTitle">撰写新文章</h2>
+      
+      <div class="form-group">
+        <label for="postTitle">文章标题</label>
+        <input type="text" id="postTitle" placeholder="输入文章标题">
+      </div>
+
+      <div class="form-group">
+        <label for="postSlug">自定义链接（可选）</label>
+        <input type="text" id="postSlug" placeholder="仅英文/数字/连字符，如 my-first-post；留空按标题自动生成">
+      </div>
+
+      <div class="form-group">
+        <label for="postCategory">分类</label>
+        <select id="postCategory" style="width: 100%; padding: 12px; border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; font-size: 0.95rem;">
+          <option value="">选择分类（可选）</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="postTags">标签</label>
+        <div id="tagsCheckboxContainer" class="tags-checkbox-container">
+          <!-- 动态生成标签复选框 -->
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="postCover">封面图片（可选）</label>
+        <input type="text" id="postCover" placeholder="输入图片URL或点击上传">
+        <button onclick="uploadCover()" class="btn btn-secondary" style="margin-top: 10px;">上传封面</button>
+        <input type="file" id="coverInput" accept="image/*" style="display: none;" onchange="handleCoverUpload(this.files[0])">
+        <div id="coverPreview" style="margin-top: 10px;"></div>
+      </div>
+
+      <div class="form-group">
+        <label for="editor">文章内容（支持 Markdown）</label>
+        <textarea id="editor"></textarea>
+      </div>
+
+      <div class="editor-actions">
+        <button onclick="savePost()" class="btn btn-primary" id="saveBtn">发布文章</button>
+        <button onclick="cancelEdit()" class="btn btn-secondary" id="cancelBtn" style="display: none;">取消编辑</button>
+      </div>
+    </div>
+
+    <!-- 文章列表 -->
+    <div class="section">
+      <h2>文章列表</h2>
+      <ul class="post-list" id="adminPostList">
+        <li class="empty-state">加载中...</li>
+      </ul>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
+  <script>
+    let easyMDE;
+    let currentEditId = null;
+
+    // 导航栏交互
+    const hamburgerMenu = document.getElementById('hamburgerMenu');
+    const cardNav = document.getElementById('cardNav');
+    const container = document.querySelector('.container');
+
+    hamburgerMenu.addEventListener('click', () => {
+      hamburgerMenu.classList.toggle('open');
+      cardNav.classList.toggle('open');
+      container.classList.toggle('nav-open');
+    });
+
+    // 初始化编辑器
+    function initEditor() {
+      easyMDE = new EasyMDE({
+        element: document.getElementById('editor'),
+        spellChecker: false,
+        placeholder: '开始写作...',
+        minHeight: '400px',
+        uploadImage: true,
+        toolbar: [
+          { name: 'bold', action: EasyMDE.toggleBold, className: 'fa fa-bold', title: '粗体 (Ctrl-B)' },
+          { name: 'italic', action: EasyMDE.toggleItalic, className: 'fa fa-italic', title: '斜体 (Ctrl-I)' },
+          { name: 'heading', action: EasyMDE.toggleHeadingSmaller, className: 'fa fa-header', title: '标题 (Ctrl-H)' },
+          '|',
+          { name: 'quote', action: EasyMDE.toggleBlockquote, className: 'fa fa-quote-left', title: '引用 (Ctrl-\')' },
+          { name: 'unordered-list', action: EasyMDE.toggleUnorderedList, className: 'fa fa-list-ul', title: '无序列表 (Ctrl-L)' },
+          { name: 'ordered-list', action: EasyMDE.toggleOrderedList, className: 'fa fa-list-ol', title: '有序列表 (Ctrl-Alt-L)' },
+          { name: 'code', action: EasyMDE.toggleCodeBlock, className: 'fa fa-code', title: '代码块 (Ctrl-Alt-C)' },
+          '|',
+          { name: 'link', action: EasyMDE.drawLink, className: 'fa fa-link', title: '插入链接 (Ctrl-K)' },
+          { name: 'image', action: EasyMDE.drawImage, className: 'fa fa-picture-o', title: '插入图片 (Ctrl-Alt-I)' },
+          { name: 'table', action: EasyMDE.drawTable, className: 'fa fa-table', title: '插入表格' },
+          { name: 'horizontal-rule', action: EasyMDE.drawHorizontalRule, className: 'fa fa-minus', title: '水平分割线' },
+          '|',
+          { name: 'preview', action: EasyMDE.togglePreview, className: 'fa fa-eye no-disable', title: '预览 (Ctrl-P)' },
+          { name: 'side-by-side', action: EasyMDE.toggleSideBySide, className: 'fa fa-columns no-disable no-mobile', title: '分屏预览 (F9)' },
+          { name: 'fullscreen', action: EasyMDE.toggleFullScreen, className: 'fa fa-arrows-alt no-disable no-mobile', title: '全屏 (F11)' },
+          '|',
+          { name: 'undo', action: EasyMDE.undo, className: 'fa fa-undo', title: '撤销 (Ctrl-Z)' },
+          { name: 'redo', action: EasyMDE.redo, className: 'fa fa-repeat fa-redo', title: '重做 (Ctrl-Y)' },
+          '|',
+          { name: 'guide', action: 'https://simplemde.com/markdown-guide', className: 'fa fa-question-circle', title: 'Markdown指南' }
+        ],
+        imageUploadFunction: async (file, onSuccess, onError) => {
+          const formData = new FormData();
+          formData.append('file', file);
+          
+          try {
+            const response = await fetch('/api/upload', {
+              method: 'POST',
+              body: formData
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              onSuccess(data.url);
+            } else {
+              onError('上传失败');
+            }
+          } catch (error) {
+            onError('上传失败');
+          }
+        }
+      });
+    }
+
+    function uploadCover() {
+      document.getElementById('coverInput').click();
+    }
+
+    async function handleCoverUpload(file) {
+      if (!file) return;
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const response = await fetch('/api/upload', {
+          method: 'POST',
+          body: formData
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          document.getElementById('postCover').value = data.url;
+          document.getElementById('coverPreview').innerHTML = `
+            <img src="${data.url}" style="max-width: 300px; border-radius: 8px; margin-top: 10px;">
+          `;
+        } else {
+          alert('上传失败');
+        }
+      } catch (error) {
+        alert('上传失败');
+      }
+    }
+
+    async function savePost() {
+      const title = document.getElementById('postTitle').value.trim();
+      const category = document.getElementById('postCategory').value.trim();
+      
+      // 从复选框获取选中的标签
+      const tags = Array.from(document.querySelectorAll('#tagsCheckboxContainer input[type="checkbox"]:checked'))
+        .map(checkbox => checkbox.value);
+      
+      const content = easyMDE.value();
+      const cover = document.getElementById('postCover').value.trim();
+      const slug = document.getElementById('postSlug').value.trim();
+
+      if (!title) {
+        alert('请填写文章标题');
+        return;
+      }
+
+      if (!content) {
+        alert('请填写文章内容');
+        return;
+      }
+
+      const url = currentEditId ? `/api/posts/${currentEditId}` : '/api/posts';
+      const method = currentEditId ? 'PUT' : 'POST';
+
+      try {
+        const response = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, category, content, tags, cover, slug })
+        });
+
+        if (response.ok) {
+          alert(currentEditId ? '文章更新成功！' : '文章发布成功！');
+          cancelEdit();
+          loadAdminPosts();
+        } else {
+          alert('保存失败，请重试');
+        }
+      } catch (error) {
+        alert('保存失败，请重试');
+        console.error('保存失败:', error);
+      }
+    }
+
+    function cancelEdit() {
+      currentEditId = null;
+      document.getElementById('postTitle').value = '';
+      document.getElementById('postSlug').value = '';
+      document.getElementById('postCategory').value = '';
+      // 取消所有标签的选中状态
+      document.querySelectorAll('#tagsCheckboxContainer input[type="checkbox"]').forEach(checkbox => {
+        checkbox.checked = false;
+      });
+      document.getElementById('postCover').value = '';
+      document.getElementById('coverPreview').innerHTML = '';
+      easyMDE.value('');
+      document.getElementById('editorTitle').textContent = '撰写新文章';
+      document.getElementById('saveBtn').textContent = '发布文章';
+      const cancelBtn = document.getElementById('cancelBtn');
+      if (cancelBtn) {
+        cancelBtn.style.display = 'none';
+      }
+    }
+
+    // 加载分类列表
+    async function loadCategories() {
+      try {
+        const response = await fetch('/api/settings');
+        const settings = await response.json();
+        const categorySelect = document.getElementById('postCategory');
+        categorySelect.innerHTML = '<option value="">选择分类（可选）</option>';
+        if (settings.categories && settings.categories.length > 0) {
+          settings.categories.forEach(cat => {
+            const option = document.createElement('option');
+            option.value = cat;
+            option.textContent = cat;
+            categorySelect.appendChild(option);
+          });
+        }
+      } catch (error) {
+        console.error('加载分类失败:', error);
+      }
+    }
+
+    async function loadAdminPosts() {
+      try {
+        const response = await fetch('/api/posts');
+        const posts = await response.json();
+        
+        const list = document.getElementById('adminPostList');
+        
+        if (posts.length === 0) {
+          list.innerHTML = '<li class="empty-state">暂无文章</li>';
+          return;
+        }
+        
+        list.innerHTML = posts.map(post => `
+          <li class="post-item">
+            <div class="post-info">
+              <h3>${escapeHtml(post.title)}</h3>
+              <small>
+                ${formatDate(post.date)}
+                ${post.tags && post.tags.length > 0 ? ' · ' + post.tags.map(t => '#' + escapeHtml(t)).join(' ') : ''}
+              </small>
+            </div>
+            <div class="post-actions">
+              <a href="/post/${post.slug}" target="_blank" class="btn btn-secondary btn-small">查看</a>
+              <button onclick="editPost('${post.id}')" class="btn btn-primary btn-small">编辑</button>
+              <button onclick="deletePost('${post.id}')" class="btn btn-danger btn-small">删除</button>
+            </div>
+          </li>
+        `).join('');
+      } catch (error) {
+        document.getElementById('adminPostList').innerHTML = 
+          '<li class="empty-state">加载失败</li>';
+        console.error('加载文章失败:', error);
+      }
+    }
+
+    async function editPost(id) {
+      try {
+        const response = await fetch('/api/posts');
+        const posts = await response.json();
+        const post = posts.find(p => p.id === id);
+        
+        if (!post) {
+          alert('文章不存在');
+          return;
+        }
+
+        const contentResponse = await fetch(`/api/post/${post.slug}`);
+        const fullPost = await contentResponse.json();
+
+        currentEditId = id;
+        document.getElementById('postTitle').value = post.title;
+        document.getElementById('postSlug').value = post.slug || '';
+        document.getElementById('postCategory').value = post.category || '';
+        
+        // 勾选对应的标签复选框
+        document.querySelectorAll('#tagsCheckboxContainer input[type="checkbox"]').forEach(checkbox => {
+          checkbox.checked = post.tags.includes(checkbox.value);
+        });
+        
+        document.getElementById('postCover').value = post.cover || '';
+        if (post.cover) {
+          document.getElementById('coverPreview').innerHTML = `
+            <img src="${post.cover}" style="max-width: 300px; border-radius: 8px; margin-top: 10px;">
+          `;
+        }
+        easyMDE.value(fullPost.content);
+        
+        document.getElementById('editorTitle').textContent = '编辑文章';
+        document.getElementById('saveBtn').textContent = '更新文章';
+        document.getElementById('cancelBtn').style.display = 'inline-block';
+
+        document.querySelector('.section').scrollIntoView({ behavior: 'smooth' });
+      } catch (error) {
+        alert('加载文章失败');
+        console.error('加载文章失败:', error);
+      }
+    }
+
+    async function deletePost(id) {
+      if (!confirm('确定要删除这篇文章吗？此操作不可恢复！')) {
+        return;
+      }
+      
+      try {
+        const response = await fetch(`/api/posts/${id}`, { method: 'DELETE' });
+        
+        if (response.ok) {
+          alert('文章已删除');
+          if (currentEditId === id) {
+            cancelEdit();
+          }
+          loadAdminPosts();
+        } else {
+          alert('删除失败');
+        }
+      } catch (error) {
+        alert('删除失败');
+        console.error('删除失败:', error);
+      }
+    }
+
+    function formatDate(dateString) {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('zh-CN', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    // 加载设置
+    async function loadSettings() {
+      try {
+        const response = await fetch('/api/settings');
+        if (response.ok) {
+          const settings = await response.json();
+          if (settings.customBackground) {
+            document.getElementById('bgImage').src = settings.customBackground;
+          }
+          if (settings.siteName) {
+            document.getElementById('siteName').textContent = settings.siteName;
+            document.title = settings.siteName + ' - 文章管理';
+          }
+          
+          // 加载分类到下拉列表
+          const categorySelect = document.getElementById('postCategory');
+          if (settings.categories && settings.categories.length > 0) {
+            categorySelect.innerHTML = '<option value="">选择分类</option>';
+            settings.categories.forEach(cat => {
+              const option = document.createElement('option');
+              option.value = cat;
+              option.textContent = cat;
+              categorySelect.appendChild(option);
+            });
+          }
+          
+          // 加载标签到复选框
+          const tagsContainer = document.getElementById('tagsCheckboxContainer');
+          if (settings.tags && settings.tags.length > 0) {
+            tagsContainer.innerHTML = '';
+            settings.tags.forEach((tag, index) => {
+              const div = document.createElement('div');
+              div.className = 'tag-checkbox-item';
+              div.innerHTML = `
+                <input type="checkbox" id="tag-${index}" value="${tag}">
+                <label for="tag-${index}">${tag}</label>
+              `;
+              tagsContainer.appendChild(div);
+            });
+          } else {
+            tagsContainer.innerHTML = '<p style="color: #999; margin: 0;">暂无标签，请先在设置中创建标签</p>';
+          }
+        }
+      } catch (error) {
+        console.log('加载设置失败');
+      }
+    }
+
+    async function loadUserInfo() {
+      try {
+        const response = await fetch('/api/user-info');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.username) {
+            document.getElementById('usernameDisplay').textContent = data.username;
+          }
+        }
+      } catch (error) {
+        console.log('加载用户信息失败');
+      }
+    }
+
+    // 初始化
+    initEditor();
+    loadSettings();
+    loadUserInfo();
+    loadCategories();
+    loadAdminPosts();
+  </script>
+</body>
+</html>
+

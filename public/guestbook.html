@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" href="/BG/favicon.svg?v=cute1" type="image/svg+xml">
+  <link rel="icon" href="/BG/favicon.png?v=cute1" type="image/png">
+  <link rel="apple-touch-icon" href="/BG/favicon.png?v=cute1">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>留言板 - Ser1oux-Blog</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.7;
+      color: #333;
+      background: #0a0a0a;
+      min-height: 100vh;
+      position: relative;
+      overflow-x: hidden;
+    }
+    .bg-image {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      object-fit: cover; z-index: 0; opacity: 0.85;
+    }
+    .bg-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.6) 100%);
+      z-index: 1;
+    }
+    .top-nav {
+      position: fixed; top: 2em; left: 50%; transform: translateX(-50%);
+      width: calc(100% - 40px); max-width: 860px; z-index: 99;
+      display: flex; gap: 12px; flex-wrap: wrap;
+    }
+    .nav-button {
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(20px);
+      color: #000; text-decoration: none;
+      padding: 12px 24px; border-radius: 0.75rem;
+      border: 0.5px solid rgba(255,255,255,0.2);
+      transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+      display: flex; align-items: center; gap: 8px; font-weight: 500;
+    }
+    .nav-button:hover { transform: translateY(-2px); background: #fff; }
+    .container {
+      position: relative; z-index: 2;
+      max-width: 800px; margin: 0 auto;
+      padding: 140px 20px 60px;
+    }
+    .panel {
+      background: #fff;
+      border-radius: 16px;
+      padding: 36px 40px;
+      border: 1px solid rgba(0,0,0,0.08);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.08);
+      margin-bottom: 24px;
+    }
+    .page-title {
+      font-size: 1.6rem; font-weight: 700; color: #111; margin-bottom: 8px;
+    }
+    .page-desc { color: #777; font-size: 0.95rem; margin-bottom: 24px; }
+    .login-hint {
+      background: #f7f7f8; border: 1px dashed #ddd; border-radius: 12px;
+      padding: 16px 18px; color: #555; margin-bottom: 8px;
+    }
+    .login-hint a { color: #2563eb; font-weight: 600; text-decoration: none; }
+    .login-hint a:hover { text-decoration: underline; }
+    .form-user {
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 12px; font-size: 0.92rem; color: #444;
+    }
+    .form-user img {
+      width: 32px; height: 32px; border-radius: 50%; object-fit: cover; background: #eee;
+    }
+    textarea {
+      width: 100%; min-height: 110px; resize: vertical;
+      border: 1px solid #e5e5e5; border-radius: 12px;
+      padding: 14px 16px; font-size: 0.95rem; font-family: inherit; line-height: 1.6;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    textarea:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+      outline: none;
+    }
+    .form-actions {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-top: 10px; gap: 12px;
+    }
+    .form-actions .hint { font-size: 0.8rem; color: #999; }
+    .submit-btn {
+      background: #111; color: #fff; border: none; border-radius: 10px;
+      padding: 10px 20px; font-size: 0.92rem; font-weight: 600; cursor: pointer;
+    }
+    .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .list-title {
+      font-size: 1.15rem; font-weight: 700; margin-bottom: 16px; color: #111;
+    }
+    .list-title .count { font-size: 0.9rem; font-weight: 500; color: #888; }
+    .msg-item {
+      display: flex; gap: 12px; padding: 16px 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+    .msg-item:last-child { border-bottom: none; }
+    .msg-avatar {
+      width: 42px; height: 42px; border-radius: 50%; object-fit: cover;
+      flex-shrink: 0; background: #eee;
+    }
+    .msg-body { flex: 1; min-width: 0; }
+    .msg-meta {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 4px;
+    }
+    .msg-author { font-weight: 600; color: #222; }
+    .msg-time { font-size: 0.8rem; color: #999; }
+    .msg-env { font-size: 0.78rem; color: #a3a3a3; margin-bottom: 6px; }
+    .msg-content {
+      color: #333; font-size: 0.95rem; line-height: 1.7;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .msg-delete {
+      margin-left: auto; background: none; border: none;
+      color: #999; font-size: 0.8rem; cursor: pointer;
+    }
+    .msg-delete:hover { color: #dc2626; }
+    .empty { text-align: center; color: #999; padding: 28px 0 8px; }
+    .toast {
+      position: fixed; top: 20px; right: 20px; z-index: 9999;
+      background: #111; color: #fff; padding: 12px 18px; border-radius: 10px;
+      opacity: 0; transform: translateY(-10px); transition: all 0.3s;
+      max-width: 280px;
+    }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .toast-error { background: #dc2626; }
+    @media (max-width: 480px) {
+      .container { padding: 100px 12px 30px; }
+      .panel { padding: 24px 18px; border-radius: 14px; }
+      .top-nav { left: 12px; transform: none; width: calc(100% - 24px); }
+    }
+  </style>
+  <link rel="stylesheet" href="/public/dark.css">
+</head>
+<body>
+  <img class="bg-image" id="bgImage" src="/BG/BG.jpg" alt="背景">
+  <div class="bg-overlay"></div>
+
+  <div class="top-nav">
+    <a href="/" class="nav-button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="15 18 9 12 15 6"></polyline>
+      </svg>
+      <span>返回首页</span>
+    </a>
+    <a href="/archive" class="nav-button"><span>归档</span></a>
+    <a href="/search" class="nav-button"><span>搜索</span></a>
+    <a href="/about" class="nav-button"><span>关于</span></a>
+  </div>
+
+  <div class="container">
+    <div class="panel">
+      <h1 class="page-title">留言板</h1>
+      <p class="page-desc">欢迎留下你的想法、建议或问候。登录后即可发表，所有人可见。</p>
+      <div id="composer"></div>
+    </div>
+    <div class="panel">
+      <h2 class="list-title">全部留言 <span class="count" id="msgCount">(0)</span></h2>
+      <div id="msgList"><div class="empty">加载中…</div></div>
+    </div>
+  </div>
+
+  <script>
+    if (typeof siteDisplayName !== 'function') {
+      window.siteDisplayName = function(s) {
+        s = s || {};
+        var b = window.__SITE_BOOTSTRAP__ || {};
+        return s.siteName || b.siteName || '博客';
+      };
+    }
+    let currentUser = null;
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text == null ? '' : String(text);
+      // innerHTML 只转义 & < >，属性上下文（如 src="..."）还必须转义引号，防止事件属性注入
+      return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    function showToast(message, type = 'success') {
+      const existing = document.querySelector('.toast');
+      if (existing) existing.remove();
+      const toast = document.createElement('div');
+      toast.className = `toast ${type === 'error' ? 'toast-error' : ''}`;
+      toast.textContent = message;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.classList.add('show'), 10);
+      setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => toast.remove(), 300);
+      }, 2200);
+    }
+
+    function displayName(m) {
+      return m.nickname || m.username || '用户';
+    }
+
+    function formatTime(dateString) {
+      return new Date(dateString).toLocaleString('zh-CN', {
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit'
+      });
+    }
+
+    function formatEnv(m) {
+      const parts = [];
+      if (m.location) parts.push(escapeHtml(m.location));
+      if (m.browser) parts.push(escapeHtml(m.browser));
+      if (m.os) parts.push(escapeHtml(m.os));
+      if (!parts.length) return '位置与环境未记录';
+      return parts.join(' · ');
+    }
+
+    async function fetchUser() {
+      try {
+        const res = await fetch('/api/user-info', { credentials: 'same-origin' });
+        if (!res.ok) return null;
+        return await res.json();
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function renderComposer() {
+      const el = document.getElementById('composer');
+      const loginUrl = `/login?redirect=${encodeURIComponent('/guestbook')}`;
+      if (!currentUser) {
+        el.innerHTML = `
+          <div class="login-hint">
+            登录后才能留言。
+            <a href="${loginUrl}">去登录</a>
+            或
+            <a href="${loginUrl}">注册账号</a>
+          </div>
+        `;
+        return;
+      }
+      const name = currentUser.nickname || currentUser.username || '用户';
+      const avatar = currentUser.avatar || `/api/default-avatar?seed=${encodeURIComponent(currentUser.id || name)}`;
+      el.innerHTML = `
+        <div class="form-user">
+          <img src="${escapeHtml(avatar)}" alt="" onerror="this.src='/api/default-avatar?seed=user'">
+          <span>以 <strong>${escapeHtml(name)}</strong> 身份留言</span>
+        </div>
+        <textarea id="msgInput" maxlength="1000" placeholder="说点什么吧…"></textarea>
+        <div class="form-actions">
+          <span class="hint">最多 1000 字 · 仅登录用户可留言</span>
+          <button type="button" class="submit-btn" id="msgSubmit">发表留言</button>
+        </div>
+      `;
+      document.getElementById('msgSubmit').addEventListener('click', submitMessage);
+    }
+
+    async function loadMessages() {
+      const listEl = document.getElementById('msgList');
+      try {
+        const res = await fetch('/api/messages', { credentials: 'same-origin' });
+        if (!res.ok) throw new Error('加载失败');
+        const messages = await res.json();
+        document.getElementById('msgCount').textContent = `(${messages.length})`;
+        if (!messages.length) {
+          listEl.innerHTML = '<div class="empty">还没有留言，来写第一条吧～</div>';
+          return;
+        }
+        listEl.innerHTML = messages.map(m => {
+          const canDelete = currentUser && (currentUser.id === m.userID || currentUser.isAdmin);
+          let avatar = m.avatar || '';
+          if (!avatar || avatar === '/BG/icon.jpg') {
+            avatar = `/api/default-avatar?seed=${encodeURIComponent(m.userID || m.username || 'user')}`;
+          }
+          return `
+            <div class="msg-item" data-id="${escapeHtml(m.id)}">
+              <img class="msg-avatar" src="${escapeHtml(avatar)}" alt="" onerror="this.src='/api/default-avatar?seed=user'">
+              <div class="msg-body">
+                <div class="msg-meta">
+                  <span class="msg-author">${escapeHtml(displayName(m))}</span>
+                  <span class="msg-time">${formatTime(m.createdAt)}</span>
+                  ${canDelete ? `<button type="button" class="msg-delete" data-id="${escapeHtml(m.id)}">删除</button>` : ''}
+                </div>
+                <div class="msg-env">${formatEnv(m)}</div>
+                <div class="msg-content">${escapeHtml(m.content)}</div>
+              </div>
+            </div>
+          `;
+        }).join('');
+        listEl.querySelectorAll('.msg-delete').forEach(btn => {
+          btn.addEventListener('click', () => deleteMessage(btn.getAttribute('data-id')));
+        });
+      } catch (e) {
+        listEl.innerHTML = '<div class="empty">加载留言失败</div>';
+      }
+    }
+
+    async function submitMessage() {
+      const input = document.getElementById('msgInput');
+      const btn = document.getElementById('msgSubmit');
+      if (!input || !btn) return;
+      const content = input.value.trim();
+      if (!content) {
+        showToast('请输入留言内容', 'error');
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/messages', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content })
+        });
+        if (res.status === 401) {
+          showToast('请先登录', 'error');
+          setTimeout(() => {
+            window.location.href = `/login?redirect=${encodeURIComponent('/guestbook')}`;
+          }, 800);
+          return;
+        }
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || '发表失败');
+        }
+        input.value = '';
+        showToast('留言成功');
+        await loadMessages();
+      } catch (e) {
+        showToast(e.message || '发表失败', 'error');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function deleteMessage(id) {
+      if (!id || !confirm('确定删除这条留言？')) return;
+      try {
+        const res = await fetch(`/api/messages/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          credentials: 'same-origin'
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || '删除失败');
+        }
+        showToast('已删除');
+        await loadMessages();
+      } catch (e) {
+        showToast(e.message || '删除失败', 'error');
+      }
+    }
+
+    async function loadSettings() {
+      try {
+        const res = await fetch('/api/settings');
+        if (res.ok) {
+          const settings = await res.json();
+          if (settings.customBackground) {
+            document.getElementById('bgImage').src = settings.customBackground;
+          }
+          document.title = `留言板 - ${siteDisplayName(settings)}`;
+        }
+      } catch (e) {}
+    }
+
+    (async function init() {
+      loadSettings();
+      currentUser = await fetchUser();
+      renderComposer();
+      await loadMessages();
+    })();
+  </script>
+</body>
+</html>

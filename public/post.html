@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" href="/BG/favicon.svg?v=cute1" type="image/svg+xml">
+  <link rel="icon" href="/BG/favicon.png?v=cute1" type="image/png">
+  <link rel="apple-touch-icon" href="/BG/favicon.png?v=cute1">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title id="pageTitle">文章详情 - Ser1oux-Blog</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+      line-height: 1.8;
+      color: #333;
+      background: #0a0a0a;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* 背景图片 */
+    .bg-image {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 0;
+      opacity: 0.85;
+    }
+
+    .bg-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.6) 100%);
+      z-index: 1;
+    }
+
+    /* 顶部导航 */
+    .top-nav {
+      position: fixed;
+      top: 2em;
+      left: 50%;
+      transform: translateX(-50%);
+      width: calc(100% - 40px);
+      max-width: 860px;
+      z-index: 99;
+      display: flex;
+      gap: 12px;
+    }
+
+    .nav-button {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(20px);
+      color: #000;
+      text-decoration: none;
+      padding: 12px 24px;
+      border-radius: 0.75rem;
+      border: 0.5px solid rgba(255, 255, 255, 0.2);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 500;
+    }
+
+    .nav-button:hover {
+      transform: translateY(-2px);
+      background: rgba(255, 255, 255, 1);
+    }
+
+    /* 主内容 */
+    .container {
+      position: relative;
+      z-index: 2;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 140px 20px 60px;
+    }
+
+    .post-header {
+      background: rgba(255, 255, 255, 1);
+      padding: 50px;
+      border-radius: 16px;
+      margin-bottom: 30px;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      box-shadow: 
+        0 8px 32px rgba(0, 0, 0, 0.15),
+        0 2px 8px rgba(0, 0, 0, 0.1);
+      animation: fadeInUp 0.6s ease-out;
+    }
+
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .post-title {
+      font-size: 2.5em;
+      margin-bottom: 20px;
+      color: #1a1a1a;
+      font-weight: 700;
+      line-height: 1.35;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+      white-space: normal;
+    }
+
+    .post-meta {
+      color: #666;
+      font-size: 1em;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 15px;
+    }
+
+    .post-date::before {
+      content: "";
+    }
+
+    .tag {
+      display: inline-block;
+      background: rgba(0, 0, 0, 0.08);
+      color: #333;
+      padding: 5px 12px;
+      border-radius: 15px;
+      font-size: 0.9em;
+      font-weight: 500;
+    }
+
+    .post-content {
+      background: rgba(255, 255, 255, 1);
+      padding: 50px;
+      border-radius: 16px;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      box-shadow: 
+        0 8px 32px rgba(0, 0, 0, 0.15),
+        0 2px 8px rgba(0, 0, 0, 0.1);
+      font-size: 1.1em;
+      line-height: 1.9;
+      animation: fadeInUp 0.6s ease-out 0.1s backwards;
+    }
+
+    .post-content h1,
+    .post-content h2,
+    .post-content h3,
+    .post-content h4,
+    .post-content h5,
+    .post-content h6 {
+      margin-top: 1.5em;
+      margin-bottom: 0.8em;
+      color: #1a1a1a;
+      font-weight: 600;
+    }
+
+    .post-content h1 { font-size: 2em; }
+    .post-content h2 { font-size: 1.7em; }
+    .post-content h3 { font-size: 1.4em; }
+
+    .post-content p {
+      margin-bottom: 1.2em;
+    }
+
+    .post-content img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 12px;
+      margin: 20px 0;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+
+    .post-content a {
+      color: #0066cc;
+      text-decoration: none;
+      border-bottom: 1px solid #0066cc;
+      transition: all 0.3s;
+    }
+
+    .post-content a:hover {
+      color: #0052a3;
+      border-bottom-color: #0052a3;
+    }
+
+    .post-content code {
+      background: rgba(0, 0, 0, 0.05);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'Courier New', monospace;
+      font-size: 0.9em;
+    }
+
+    .post-content pre {
+      background: #1a1b26;
+      padding: 50px 20px 20px;
+      border-radius: 12px;
+      overflow-x: auto;
+      margin: 20px 0;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+      position: relative;
+    }
+
+    /* 现代化滚动条 */
+    .post-content pre::-webkit-scrollbar {
+      height: 8px;
+    }
+
+    .post-content pre::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.05);
+      border-radius: 4px;
+    }
+
+    .post-content pre::-webkit-scrollbar-thumb {
+      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      border-radius: 4px;
+      transition: all 0.3s ease;
+    }
+
+    .post-content pre::-webkit-scrollbar-thumb:hover {
+      background: linear-gradient(90deg, #764ba2 0%, #667eea 100%);
+    }
+
+    /* 复制按钮 */
+    .copy-code-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85em;
+      transition: all 0.3s ease;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .copy-code-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+      transform: translateY(-2px);
+    }
+
+    .copy-code-btn.copied {
+      background: rgba(76, 175, 80, 0.3);
+      border-color: rgba(76, 175, 80, 0.5);
+    }
+
+    .post-content pre code {
+      background: none;
+      padding: 0;
+      color: #a9b1d6;
+    }
+
+    .post-content blockquote {
+      border-left: 4px solid #0066cc;
+      padding-left: 20px;
+      margin: 20px 0;
+      color: #555;
+      font-style: italic;
+      background: rgba(0, 102, 204, 0.05);
+      padding: 15px 20px;
+      border-radius: 0 8px 8px 0;
+    }
+
+    .post-content ul,
+    .post-content ol {
+      margin-left: 30px;
+      margin-bottom: 1.2em;
+    }
+
+    .post-content li {
+      margin-bottom: 0.5em;
+    }
+
+    .post-content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .post-content th,
+    .post-content td {
+      border: 1px solid #e0e0e0;
+      padding: 12px;
+      text-align: left;
+    }
+
+    .post-content th {
+      background: rgba(0, 0, 0, 0.05);
+      font-weight: 600;
+    }
+
+    .loading,
+    .error {
+      text-align: center;
+      padding: 80px 20px;
+      font-size: 1.2em;
+      color: white;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(20px);
+      border-radius: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+
+    /* 提示样式 */
+    .toast {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: white;
+      color: #333;
+      padding: 12px 20px;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      z-index: 1000;
+      font-weight: 500;
+      transform: translateX(100%);
+      opacity: 0;
+      transition: all 0.3s ease;
+    }
+    
+    .toast.show {
+      transform: translateX(0);
+      opacity: 1;
+    }
+    
+    .toast.toast-success {
+      border-left: 4px solid #28a745;
+    }
+    
+    .toast.toast-error {
+      border-left: 4px solid #dc3545;
+    }
+
+    @media (max-width: 768px) {
+      .top-nav {
+        left: 15px;
+        transform: none;
+        width: calc(100% - 30px);
+        top: 1em;
+        gap: 8px;
+        justify-content: flex-start;
+      }
+
+      .nav-button {
+        padding: 10px 18px;
+        font-size: 0.9rem;
+        border-radius: 12px;
+      }
+
+      .container {
+        padding: 100px 15px 40px;
+      }
+
+      .post-header,
+      .post-content {
+        padding: 30px 25px;
+        border-radius: 16px;
+      }
+
+      .post-title {
+        font-size: 1.9rem;
+        line-height: 1.3;
+      }
+
+      .post-content {
+        font-size: 1rem;
+        line-height: 1.8;
+      }
+      
+      .post-content h1 { font-size: 1.8em; }
+      .post-content h2 { font-size: 1.5em; }
+      .post-content h3 { font-size: 1.3em; }
+      
+      .post-content pre {
+        margin: 20px -10px;
+        border-radius: 12px;
+      }
+      
+      .toast {
+        top: 10px;
+        right: 10px;
+        max-width: calc(100% - 20px);
+        left: 10px;
+        transform: translateY(-100%);
+      }
+      
+      .toast.show {
+        transform: translateY(0);
+      }
+    }
+    
+    @media (max-width: 480px) {
+      .top-nav {
+        left: 12px;
+        transform: none;
+        width: calc(100% - 24px);
+        flex-wrap: wrap;
+        justify-content: flex-start;
+      }
+      
+      .nav-button {
+        padding: 8px 16px;
+        font-size: 0.85rem;
+      }
+      
+      .container {
+        padding: 85px 12px 30px;
+      }
+      
+      .post-header,
+      .post-content {
+        padding: 25px 20px;
+        border-radius: 14px;
+      }
+      
+      .post-title {
+        font-size: 1.6rem;
+      }
+      
+      .post-content {
+        font-size: 0.95rem;
+      }
+      
+      .post-content h1 { font-size: 1.6em; }
+      .post-content h2 { font-size: 1.4em; }
+      .post-content h3 { font-size: 1.2em; }
+      
+      .post-content pre {
+        font-size: 0.85rem;
+      }
+    }
+    
+    /* 评论区 */
+    .comments-section {
+      background: rgba(255, 255, 255, 1);
+      padding: 36px 40px;
+      border-radius: 16px;
+      margin-top: 30px;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      box-shadow:
+        0 8px 32px rgba(0, 0, 0, 0.15),
+        0 2px 8px rgba(0, 0, 0, 0.1);
+    }
+
+    .comments-title {
+      font-size: 1.35rem;
+      font-weight: 700;
+      margin-bottom: 20px;
+      color: #111;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .comments-title span.count {
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: #888;
+    }
+
+    .comment-login-hint {
+      background: #f7f7f8;
+      border: 1px dashed #ddd;
+      border-radius: 12px;
+      padding: 18px 20px;
+      color: #555;
+      margin-bottom: 24px;
+      line-height: 1.6;
+    }
+
+    .comment-login-hint a {
+      color: #2563eb;
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .comment-login-hint a:hover {
+      text-decoration: underline;
+    }
+
+    .comment-form {
+      margin-bottom: 28px;
+    }
+
+    .comment-form-user {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-size: 0.92rem;
+      color: #444;
+    }
+
+    .comment-form-user img {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      object-fit: cover;
+      background: #eee;
+    }
+
+    .comment-form textarea {
+      width: 100%;
+      min-height: 100px;
+      resize: vertical;
+      border: 1px solid #e5e5e5;
+      border-radius: 12px;
+      padding: 14px 16px;
+      font-size: 0.95rem;
+      font-family: inherit;
+      line-height: 1.6;
+      box-sizing: border-box;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .comment-form textarea:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+      outline: none !important;
+    }
+
+    .comment-form-actions {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 10px;
+      gap: 12px;
+    }
+
+    .comment-form-actions .hint {
+      font-size: 0.8rem;
+      color: #999;
+    }
+
+    .comment-submit {
+      background: #111;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 20px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.15s, opacity 0.15s;
+    }
+
+    .comment-submit:hover {
+      transform: translateY(-1px);
+      opacity: 0.92;
+    }
+
+    .comment-submit:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .comments-list {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .comment-item {
+      display: flex;
+      gap: 12px;
+      padding: 16px 0;
+      border-bottom: 1px solid #f0f0f0;
+    }
+
+    .comment-item:last-child {
+      border-bottom: none;
+      padding-bottom: 0;
+    }
+
+    .comment-avatar {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      object-fit: cover;
+      flex-shrink: 0;
+      background: #eee;
+    }
+
+    .comment-body {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .comment-meta {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 12px;
+      margin-bottom: 6px;
+    }
+
+    .comment-author {
+      font-weight: 600;
+      color: #222;
+      font-size: 0.95rem;
+    }
+
+    .comment-time {
+      font-size: 0.8rem;
+      color: #999;
+    }
+
+    .comment-env {
+      font-size: 0.78rem;
+      color: #a3a3a3;
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 4px 10px;
+      align-items: center;
+    }
+
+    .comment-env .dot {
+      opacity: 0.5;
+    }
+
+    .comment-actions {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .comment-reply,
+    .comment-delete {
+      background: none;
+      border: none;
+      color: #999;
+      font-size: 0.8rem;
+      cursor: pointer;
+      padding: 2px 6px;
+    }
+
+    .comment-reply:hover {
+      color: #2563eb;
+    }
+
+    .comment-delete:hover {
+      color: #dc2626;
+    }
+
+    .comment-content {
+      color: #333;
+      font-size: 0.95rem;
+      line-height: 1.7;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .comment-reply-to {
+      color: #2563eb;
+      font-weight: 600;
+      margin-right: 6px;
+    }
+
+    .comment-replies {
+      margin-top: 12px;
+      padding-left: 8px;
+      border-left: 2px solid #f0f0f0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .comment-item.is-reply {
+      padding: 12px 0 12px 8px;
+      border-bottom: none;
+    }
+
+    .comment-item.is-reply .comment-avatar {
+      width: 32px;
+      height: 32px;
+    }
+
+    .comment-reply-form {
+      margin-top: 12px;
+      background: #f8f8f9;
+      border-radius: 12px;
+      padding: 12px;
+    }
+
+    .comment-reply-form textarea {
+      min-height: 72px;
+    }
+
+    .comment-reply-form .comment-form-actions {
+      margin-top: 8px;
+    }
+
+    .comment-cancel {
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 0.85rem;
+      cursor: pointer;
+      padding: 8px 10px;
+    }
+
+    .comments-empty {
+      text-align: center;
+      color: #999;
+      padding: 24px 0 8px;
+      font-size: 0.95rem;
+    }
+
+    @media (max-width: 480px) {
+      .comments-section {
+        padding: 24px 18px;
+        border-radius: 14px;
+      }
+    }
+
+    /* 移除所有按钮和可点击元素的焦点轮廓 */
+    button, a, input, select, textarea, [role="button"], [tabindex], .nav-button, .copy-btn {
+      outline: none !important;
+      -webkit-tap-highlight-color: transparent !important;
+    }
+    
+    button:focus, a:focus, input:focus, select:focus, textarea:focus, [role="button"]:focus, [tabindex]:focus, .nav-button:focus, .copy-btn:focus {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+  </style>
+  <link rel="stylesheet" href="/public/dark.css">
+  <style>
+    /* 文章目录（宽屏左侧悬浮，与站点玻璃卡片风格一致） */
+    .toc-box {
+      position: fixed; left: 32px; top: 50%; transform: translateY(-50%);
+      width: 280px;
+      max-height: 70vh; overflow-y: auto;
+      background: rgba(255, 255, 255, 0.78);
+      backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-radius: 22px;
+      padding: 22px 22px 18px; z-index: 50;
+      font-size: 14px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    }
+    .toc-title {
+      font-weight: 700; font-size: 15px; margin-bottom: 12px; color: #111;
+      padding-bottom: 10px; border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    }
+    .toc-link {
+      display: block; padding: 6px 8px; color: #555; text-decoration: none;
+      line-height: 1.5; border-radius: 10px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .toc-link:hover { color: #111; background: rgba(0, 0, 0, 0.05); }
+    .toc-h3 { padding-left: 22px; font-size: 13.5px; }
+    html { scroll-behavior: smooth; }
+    @media (max-width: 1360px) { .toc-box { display: none; } }
+
+    /* ---------- 窄屏目录：悬浮按钮 + 底部抽屉（修复 ≤1360px 无目录） ---------- */
+    .toc-fab {
+      display: none;
+      position: fixed;
+      right: 16px;
+      bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+      z-index: 60;
+      height: 44px;
+      padding: 0 18px;
+      align-items: center;
+      gap: 7px;
+      border-radius: 999px;
+      border: 1px solid rgba(0, 0, 0, 0.14);
+      background: rgba(255, 255, 255, 0.88);
+      backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+      color: #111;
+      font-size: 14px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.16);
+    }
+    .toc-sheet-mask {
+      position: fixed; inset: 0;
+      background: rgba(0, 0, 0, 0.35);
+      z-index: 70;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+    .toc-sheet-mask.show { opacity: 1; pointer-events: auto; }
+    .toc-sheet {
+      position: fixed; left: 0; right: 0; bottom: 0;
+      z-index: 71;
+      display: flex;
+      flex-direction: column;
+      max-height: 65vh;
+      background: rgba(255, 255, 255, 0.94);
+      backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(0, 0, 0, 0.08);
+      border-bottom: none;
+      border-radius: 22px 22px 0 0;
+      padding: 14px 18px calc(20px + env(safe-area-inset-bottom, 0px));
+      transform: translateY(105%);
+      visibility: hidden;
+      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.3s;
+    }
+    .toc-sheet.show { transform: none; visibility: visible; }
+    .toc-sheet-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    }
+    .toc-sheet-header .toc-title { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+    .toc-sheet-close {
+      width: 32px; height: 32px;
+      border-radius: 999px; border: none;
+      background: rgba(0, 0, 0, 0.06);
+      color: #333; font-size: 18px; line-height: 1;
+      cursor: pointer; font-family: inherit;
+    }
+    .toc-sheet-body { overflow-y: auto; padding-top: 8px; }
+    @media (max-width: 1360px) { .toc-fab { display: flex; } }
+  </style>
+</head>
+<body>
+  <!-- 背景图片 -->
+  <img src="/BG/BG.jpg" alt="Background" class="bg-image" id="bgImage">
+  <div class="bg-overlay"></div>
+
+  <!-- 顶部导航 -->
+  <div class="top-nav">
+    <a href="/" class="nav-button">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 8px;">
+        <polyline points="15 18 9 12 15 6"></polyline>
+      </svg>
+      <span>返回首页</span>
+    </a>
+    <a href="/admin" class="nav-button">
+      <span>管理后台</span>
+    </a>
+  </div>
+
+  <!-- 主内容 -->
+  <div class="container">
+    <div id="postContainer">
+      <div class="loading">加载中...</div>
+    </div>
+    <div id="commentsSection" class="comments-section" style="display:none;"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/highlight.min.js"></script>
+
+  <script>
+    if (typeof siteDisplayName !== 'function') {
+      window.siteDisplayName = function(s) {
+        s = s || {};
+        var b = window.__SITE_BOOTSTRAP__ || {};
+        return s.siteName || b.siteName || '博客';
+      };
+    }
+    // 配置 marked
+    marked.setOptions({
+      breaks: true,
+      gfm: true
+    });
+
+    let currentSlug = '';
+    let currentPostId = '';
+    let currentUser = null;
+
+    function getPostKeyFromURL() {
+      const parts = window.location.pathname.split('/').filter(Boolean);
+      const idx = parts.indexOf('post');
+      let key = idx >= 0 && parts[idx + 1] ? parts[idx + 1] : (parts[parts.length - 1] || '');
+      try { key = decodeURIComponent(key); } catch (e) {}
+      return key;
+    }
+
+    async function loadPost() {
+      const key = getPostKeyFromURL();
+      currentSlug = key;
+      
+      try {
+        const response = await fetch(`/api/post/${encodeURIComponent(key)}`);
+        
+        if (!response.ok) {
+          throw new Error('文章不存在');
+        }
+        
+        const post = await response.json();
+        // 使用服务端返回的标准 slug/id，避免 URL 编码导致评论失败
+        currentSlug = post.slug || key;
+        currentPostId = post.id || '';
+        
+        // 构建文章浮动目录：从已渲染正文提取 h2/h3，生成锚点导航
+    function buildTableOfContents() {
+      const content = document.querySelector('.post-content');
+      if (!content) return;
+      const headings = content.querySelectorAll('h2, h3');
+      if (headings.length < 3) return; // 短文不显示目录
+
+      headings.forEach((h, i) => {
+        if (!h.id) h.id = 'toc-heading-' + i;
+      });
+
+      const links = Array.from(headings).map(h => {
+        const cls = h.tagName.toLowerCase() === 'h3' ? 'toc-link toc-h3' : 'toc-link';
+        return `<a href="#${h.id}" class="${cls}">${escapeHtml(h.textContent)}</a>`;
+      }).join('');
+
+      const toc = document.createElement('aside');
+      toc.className = 'toc-box';
+      toc.innerHTML = `<div class="toc-title">目录</div>${links}`;
+      document.body.appendChild(toc);
+
+      // 窄屏（≤1360px）：悬浮按钮 + 底部抽屉，替代被隐藏的侧栏目录
+      const fab = document.createElement('button');
+      fab.className = 'toc-fab';
+      fab.type = 'button';
+      fab.setAttribute('aria-label', '打开目录');
+      fab.setAttribute('aria-expanded', 'false');
+      fab.innerHTML = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><line x1="9" y1="6" x2="20" y2="6"/><line x1="9" y1="12" x2="20" y2="12"/><line x1="9" y1="18" x2="20" y2="18"/><circle cx="4.5" cy="6" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="12" r="1.3" fill="currentColor" stroke="none"/><circle cx="4.5" cy="18" r="1.3" fill="currentColor" stroke="none"/></svg><span>目录</span>';
+
+      const sheet = document.createElement('div');
+      sheet.className = 'toc-sheet';
+      sheet.setAttribute('role', 'dialog');
+      sheet.setAttribute('aria-label', '文章目录');
+      sheet.innerHTML = '<div class="toc-sheet-header"><div class="toc-title">目录</div><button type="button" class="toc-sheet-close" aria-label="关闭目录">&times;</button></div><div class="toc-sheet-body">' + links + '</div>';
+
+      const mask = document.createElement('div');
+      mask.className = 'toc-sheet-mask';
+
+      document.body.append(fab, mask, sheet);
+
+      const closeTocSheet = () => {
+        sheet.classList.remove('show');
+        mask.classList.remove('show');
+        fab.setAttribute('aria-expanded', 'false');
+      };
+      fab.addEventListener('click', () => {
+        const open = !sheet.classList.contains('show');
+        sheet.classList.toggle('show', open);
+        mask.classList.toggle('show', open);
+        fab.setAttribute('aria-expanded', String(open));
+      });
+      mask.addEventListener('click', closeTocSheet);
+      sheet.querySelector('.toc-sheet-close').addEventListener('click', closeTocSheet);
+      sheet.querySelectorAll('.toc-link').forEach(a => a.addEventListener('click', closeTocSheet));
+    }
+
+    // 更新页面标题
+        document.getElementById('pageTitle').textContent = `${post.title} - ${siteDisplayName()}`;
+        
+        // 渲染文章
+        const container = document.getElementById('postContainer');
+        
+        // 解析 Markdown
+        let htmlContent = marked.parse(post.content);
+        
+        // 修复图片路径：将相对路径转换为绝对路径
+        htmlContent = htmlContent.replace(/src="(?!http|\/)(.*?)"/g, 'src="/uploads/$1"');
+        
+        container.innerHTML = `
+          <div class="post-header">
+            <h1 class="post-title">${escapeHtml(post.title)}</h1>
+            <div class="post-meta">
+              <span class="post-date">${formatDate(post.date)}</span>
+              ${post.category ? `<span class="tag">${escapeHtml(post.category)}</span>` : ''}
+              ${post.tags && post.tags.length > 0 ? post.tags.map(tag => 
+                `<span class="tag">${escapeHtml(tag)}</span>`
+              ).join('') : ''}
+            </div>
+          </div>
+          <div class="post-content">
+            ${htmlContent}
+          </div>
+        `;
+
+        // 生成文章目录（h2/h3），仅长文且宽屏显示
+        buildTableOfContents();
+
+        // 高亮代码块并添加复制按钮
+        if (typeof hljs !== 'undefined') {
+          document.querySelectorAll('pre code').forEach((block) => {
+            hljs.highlightElement(block);
+          });
+        }
+        
+        // 为每个代码块添加复制按钮
+        document.querySelectorAll('pre').forEach((pre) => {
+          const button = document.createElement('button');
+          button.className = 'copy-code-btn';
+          button.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+            </svg>
+            <span>复制</span>
+          `;
+          
+          button.addEventListener('click', async () => {
+            const code = pre.querySelector('code');
+            const text = code ? code.textContent : pre.textContent;
+            
+            try {
+              // 优先使用 Clipboard API
+              if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(text);
+              } else {
+                // 备用方案：使用传统的 execCommand
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                textArea.style.position = 'fixed';
+                textArea.style.left = '-999999px';
+                textArea.style.top = '-999999px';
+                document.body.appendChild(textArea);
+                textArea.focus();
+                textArea.select();
+                document.execCommand('copy');
+                textArea.remove();
+              }
+              
+              button.classList.add('copied');
+              button.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                <span>已复制</span>
+              `;
+              
+              // 显示成功提示
+              showCopySuccess();
+              
+              setTimeout(() => {
+                button.classList.remove('copied');
+                button.innerHTML = `
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                  <span>复制</span>
+                `;
+              }, 2000);
+            } catch (err) {
+              console.error('复制失败:', err);
+              showCopyError();
+            }
+          });
+          
+          pre.appendChild(button);
+        });
+
+        // 加载评论
+        await initComments();
+        
+      } catch (error) {
+        document.getElementById('postContainer').innerHTML = 
+          '<div class="error">文章不存在或加载失败<br><a href="/" style="color: #fff; text-decoration: underline;">返回首页</a></div>';
+        console.error('加载文章失败:', error);
+      }
+    }
+
+    async function fetchCurrentUser() {
+      try {
+        const res = await fetch('/api/user-info', { credentials: 'same-origin' });
+        if (!res.ok) return null;
+        return await res.json();
+      } catch (e) {
+        return null;
+      }
+    }
+
+    async function initComments() {
+      const section = document.getElementById('commentsSection');
+      section.style.display = 'block';
+      currentUser = await fetchCurrentUser();
+      await renderCommentsSection();
+    }
+
+    async function loadCommentsList() {
+      const key = currentPostId || currentSlug;
+      const res = await fetch(`/api/comments/${encodeURIComponent(key)}`, { credentials: 'same-origin' });
+      if (!res.ok) return [];
+      return await res.json();
+    }
+
+    let replyTarget = null;
+
+    function displayName(c) {
+      return c.nickname || c.username || '用户';
+    }
+
+    function commentAvatar(c) {
+      let avatar = c.avatar || '';
+      if (!avatar || avatar === '/BG/icon.jpg') {
+        avatar = `/api/default-avatar?seed=${encodeURIComponent(c.userID || c.username || 'user')}`;
+      }
+      return avatar;
+    }
+
+    function groupComments(comments) {
+      const roots = [];
+      const children = {};
+      comments.forEach(c => {
+        if (c.parentId) {
+          if (!children[c.parentId]) children[c.parentId] = [];
+          children[c.parentId].push(c);
+        } else {
+          roots.push(c);
+        }
+      });
+      return { roots, children };
+    }
+
+    function formatCommentTime(dateString) {
+      const date = new Date(dateString);
+      return date.toLocaleString('zh-CN', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+
+    function formatCommentEnv(c) {
+      const parts = [];
+      if (c.location) parts.push(escapeHtml(c.location));
+      if (c.browser) parts.push(escapeHtml(c.browser));
+      if (c.os) parts.push(escapeHtml(c.os));
+      if (!parts.length) {
+        return '<span>位置与环境未记录</span>';
+      }
+      return parts.map((p, i) => (i === 0 ? `<span>${p}</span>` : `<span class="dot">·</span><span>${p}</span>`)).join('');
+    }
+
+    async function renderCommentsSection() {
+      const section = document.getElementById('commentsSection');
+      const comments = await loadCommentsList();
+      const loginUrl = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+
+      let formHtml = '';
+      if (currentUser) {
+        const name = currentUser.nickname || currentUser.username || '用户';
+        const avatar = currentUser.avatar || `/api/default-avatar?seed=${encodeURIComponent(currentUser.id || name)}`;
+        formHtml = `
+          <div class="comment-form">
+            <div class="comment-form-user">
+              <img src="${escapeHtml(avatar)}" alt="avatar" onerror="this.src='/api/default-avatar?seed=user'">
+              <span>以 <strong>${escapeHtml(name)}</strong> 身份评论</span>
+            </div>
+            <textarea id="commentInput" maxlength="1000" placeholder="说点什么吧…"></textarea>
+            <div class="comment-form-actions">
+              <span class="hint">最多 1000 字 · 仅登录用户可评论</span>
+              <button type="button" class="comment-submit" id="commentSubmitBtn">发表评论</button>
+            </div>
+          </div>
+        `;
+      } else {
+        formHtml = `
+          <div class="comment-login-hint">
+            登录后才能发表评论。
+            <a href="${loginUrl}">去登录</a>
+            或
+            <a href="${loginUrl}">注册账号</a>
+          </div>
+        `;
+      }
+
+      const { roots, children } = groupComments(comments);
+
+      function renderOneComment(c, isReply) {
+        const canDelete = currentUser && (currentUser.id === c.userID || currentUser.isAdmin);
+        const canReply = !currentUser || currentUser.id !== c.userID;
+        const replyHint = c.replyToName ? `<span class="comment-reply-to">回复 @${escapeHtml(c.replyToName)}</span>` : '';
+        const replyBox = (replyTarget && replyTarget.id === c.id) ? `
+          <div class="comment-form comment-reply-form">
+            <textarea id="replyInput" maxlength="1000" placeholder="回复 @${escapeHtml(replyTarget.name)}…"></textarea>
+            <div class="comment-form-actions">
+              <span class="hint">最多 1000 字</span>
+              <div>
+                <button type="button" class="comment-cancel" id="replyCancelBtn">取消</button>
+                <button type="button" class="comment-submit" id="replySubmitBtn">回复</button>
+              </div>
+            </div>
+          </div>
+        ` : '';
+        return `
+          <div class="comment-item${isReply ? ' is-reply' : ''}" id="comment-${escapeHtml(c.id)}" data-id="${escapeHtml(c.id)}">
+            <img class="comment-avatar" src="${escapeHtml(commentAvatar(c))}" alt="" onerror="this.src='/api/default-avatar?seed=user'">
+            <div class="comment-body">
+              <div class="comment-meta">
+                <span class="comment-author">${escapeHtml(displayName(c))}</span>
+                <span class="comment-time">${formatCommentTime(c.createdAt)}</span>
+                <div class="comment-actions">
+                  ${canReply ? `<button type="button" class="comment-reply" data-id="${escapeHtml(c.id)}" data-name="${escapeHtml(displayName(c))}">回复</button>` : ''}
+                  ${canDelete ? `<button type="button" class="comment-delete" data-id="${escapeHtml(c.id)}">删除</button>` : ''}
+                </div>
+              </div>
+              <div class="comment-env">${formatCommentEnv(c)}</div>
+              <div class="comment-content">${replyHint}${escapeHtml(c.content)}</div>
+              ${replyBox}
+            </div>
+          </div>
+        `;
+      }
+
+      let listHtml = '';
+      if (!comments.length) {
+        listHtml = `<div class="comments-empty">还没有评论，来抢沙发吧～</div>`;
+      } else {
+        listHtml = `<div class="comments-list">${roots.map(root => {
+          const replies = children[root.id] || [];
+          const repliesHtml = replies.length ? `<div class="comment-replies">${replies.map(r => renderOneComment(r, true)).join('')}</div>` : '';
+          return `
+            <div class="comment-thread">
+              ${renderOneComment(root, false)}
+              ${repliesHtml}
+            </div>
+          `;
+        }).join('')}</div>`;
+      }
+
+      section.innerHTML = `
+        <h2 class="comments-title">评论 <span class="count">(${comments.length})</span></h2>
+        ${formHtml}
+        ${listHtml}
+      `;
+
+      const submitBtn = document.getElementById('commentSubmitBtn');
+      if (submitBtn) {
+        submitBtn.addEventListener('click', () => submitComment(null, 'commentInput', 'commentSubmitBtn'));
+      }
+      const replySubmit = document.getElementById('replySubmitBtn');
+      if (replySubmit && replyTarget) {
+        replySubmit.addEventListener('click', () => submitComment(replyTarget.id, 'replyInput', 'replySubmitBtn'));
+      }
+      const replyCancel = document.getElementById('replyCancelBtn');
+      if (replyCancel) {
+        replyCancel.addEventListener('click', async () => {
+          replyTarget = null;
+          await renderCommentsSection();
+        });
+      }
+      section.querySelectorAll('.comment-reply').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          if (!currentUser) {
+            window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+            return;
+          }
+          const item = btn.closest('.comment-item');
+          if (item && currentUser.id && comments.some(c => c.id === btn.getAttribute('data-id') && c.userID === currentUser.id)) {
+            showToast('不能回复自己的评论', 'error');
+            return;
+          }
+          replyTarget = {
+            id: btn.getAttribute('data-id'),
+            name: btn.getAttribute('data-name') || '用户'
+          };
+          await renderCommentsSection();
+          const box = document.getElementById('replyInput');
+          if (box) box.focus();
+        });
+      });
+      section.querySelectorAll('.comment-delete').forEach(btn => {
+        btn.addEventListener('click', () => deleteComment(btn.getAttribute('data-id')));
+      });
+      const hashId = (location.hash || '').replace('#comment-', '');
+      if (hashId) {
+        const el = document.getElementById('comment-' + hashId);
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
+    async function submitComment(parentId, inputId, btnId) {
+      const input = document.getElementById(inputId);
+      const btn = document.getElementById(btnId);
+      if (!input || !btn) return;
+      const content = input.value.trim();
+      if (!content) {
+        showToast(parentId ? '请输入回复内容' : '请输入评论内容', 'error');
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const payload = {
+          postSlug: currentSlug,
+          postId: currentPostId,
+          content
+        };
+        if (parentId) payload.parentId = parentId;
+        const res = await fetch('/api/comments', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (res.status === 401) {
+          showToast('请先登录', 'error');
+          setTimeout(() => {
+            window.location.href = `/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+          }, 800);
+          return;
+        }
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || '发表失败');
+        }
+        input.value = '';
+        replyTarget = null;
+        showToast(parentId ? '回复成功' : '评论成功', 'success');
+        await renderCommentsSection();
+      } catch (e) {
+        showToast(e.message || '发表失败', 'error');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    async function deleteComment(id) {
+      if (!id || !confirm('确定删除这条评论？')) return;
+      try {
+        const res = await fetch(`/api/comments/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          credentials: 'same-origin'
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || '删除失败');
+        }
+        showToast('已删除', 'success');
+        await renderCommentsSection();
+      } catch (e) {
+        showToast(e.message || '删除失败', 'error');
+      }
+    }
+
+    function formatDate(dateString) {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('zh-CN', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+    }
+
+    // 显示复制成功提示
+    function showCopySuccess() {
+      showToast('复制成功', 'success');
+    }
+    
+    // 显示复制失败提示
+    function showCopyError() {
+      showToast('复制失败', 'error');
+    }
+    
+    // 通用提示函数
+    function showToast(message, type = 'success') {
+      // 移除已存在的提示
+      const existingToast = document.querySelector('.toast');
+      if (existingToast) {
+        existingToast.remove();
+      }
+      
+      // 创建提示元素
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${type}`;
+      toast.textContent = message;
+      
+      // 添加到页面
+      document.body.appendChild(toast);
+      
+      // 显示动画
+      setTimeout(() => {
+        toast.classList.add('show');
+      }, 10);
+      
+      // 自动隐藏
+      setTimeout(() => {
+        toast.classList.remove('show');
+        setTimeout(() => {
+          if (toast.parentNode) {
+            toast.parentNode.removeChild(toast);
+          }
+        }, 300);
+      }, 2000);
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text == null ? '' : String(text);
+      // innerHTML 只转义 & < >，属性上下文（如 src="..."）还必须转义引号，防止事件属性注入
+      return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // 加载自定义背景和站点设置
+    async function loadSettings() {
+      try {
+        const response = await fetch('/api/settings');
+        if (response.ok) {
+          const settings = await response.json();
+          if (settings.customBackground) {
+            document.getElementById('bgImage').src = settings.customBackground;
+          }
+        }
+      } catch (error) {
+        console.log('使用默认背景');
+      }
+    }
+
+    loadSettings();
+    loadPost();
+  </script>
+</body>
+</html>

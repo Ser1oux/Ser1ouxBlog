@@ -1,0 +1,46 @@
+# Binaries
+gl-blog
+gl-blog.exe
+gl-blog-*
+gl-blog - *
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Local toolchain (portable Go)
+.tools/
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Data directory
+data/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Backup files
+*.tar.gz
+*.zip
+backup/
+
+# Logs
+*.log
+output.log
+error.log
+
+# Batch files (optional - remove if you want to commit them)
+# *.bat
+

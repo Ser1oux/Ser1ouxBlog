@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" href="/BG/favicon.svg?v=cute1" type="image/svg+xml">
+  <link rel="icon" href="/BG/favicon.png?v=cute1" type="image/png">
+  <link rel="apple-touch-icon" href="/BG/favicon.png?v=cute1">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>附件管理 - Ser1oux-Blog</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+      background: #0a0a0a;
+      line-height: 1.6;
+      position: relative;
+      min-height: 100vh;
+    }
+
+    .bg-image {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      z-index: 0;
+      opacity: 0.85;
+    }
+
+    .bg-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: linear-gradient(180deg, rgba(0,0,0,0.3) 0%, rgba(0,0,0,0.6) 100%);
+      z-index: 1;
+    }
+
+    /* 导航栏样式（与posts.html相同） */
+    .card-nav-container {
+      position: fixed;
+      top: 2em;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 90%;
+      max-width: 500px;
+      z-index: 99;
+    }
+
+    .card-nav {
+      display: block;
+      height: 60px;
+      padding: 0;
+      background: rgba(255, 255, 255, 0.75);
+      backdrop-filter: blur(40px) saturate(200%);
+      -webkit-backdrop-filter: blur(40px) saturate(200%);
+      border: 1px solid rgba(255, 255, 255, 0.4);
+      border-radius: 0.75rem;
+      position: relative;
+      overflow: hidden;
+      transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .card-nav.open {
+      height: 120px;
+    }
+
+    .card-nav-top {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.5rem 0.45rem 0.55rem 1.1rem;
+      z-index: 2;
+    }
+
+    .hamburger-menu {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      gap: 6px;
+      color: #000;
+    }
+
+    .hamburger-line {
+      width: 30px;
+      height: 2px;
+      background-color: currentColor;
+      transition: transform 0.25s ease;
+    }
+
+    .hamburger-menu.open .hamburger-line:first-child {
+      transform: translateY(4px) rotate(45deg);
+    }
+
+    .hamburger-menu.open .hamburger-line:last-child {
+      transform: translateY(-4px) rotate(-45deg);
+    }
+
+    .logo-container {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 20px;
+      font-weight: 600;
+      color: #000;
+    }
+
+    .user-info {
+      background: rgba(0,0,0,0.05);
+      color: #333;
+      border-radius: calc(0.75rem - 0.35rem);
+      padding: 0 1rem;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      font-size: 0.9em;
+    }
+
+    .card-nav-content {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 60px;
+      bottom: 0;
+      padding: 0.5rem;
+      display: flex;
+      align-items: flex-end;
+      gap: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.3s ease;
+    }
+
+    .card-nav.open .card-nav-content {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .nav-card {
+      height: 100%;
+      flex: 1;
+      border-radius: calc(0.75rem - 0.2rem);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      transform: translateY(20px);
+      transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      text-decoration: none;
+      color: inherit;
+    }
+
+    .card-nav.open .nav-card {
+      transform: translateY(0);
+    }
+
+    .nav-card-label {
+      font-weight: 500;
+      font-size: 18px;
+      width: 100%;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+    }
+
+    .nav-card-links {
+      margin-top: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      font-size: 16px;
+      opacity: 0.9;
+    }
+
+    /* 主内容区 */
+    .container {
+      position: relative;
+      z-index: 2;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 140px 20px 60px;
+      transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .container.nav-open {
+      transform: translateY(200px);
+    }
+
+    .section {
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(20px);
+      padding: 40px;
+      border-radius: 16px;
+      margin-bottom: 30px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      animation: fadeInUp 0.6s ease-out;
+    }
+
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(30px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .section h2 {
+      margin-bottom: 25px;
+      color: #1a1a1a;
+      font-size: 1.8em;
+      font-weight: 600;
+    }
+
+    .upload-area {
+      border: 2px dashed #e0e0e0;
+      border-radius: 12px;
+      padding: 60px 30px;
+      text-align: center;
+      transition: all 0.3s;
+      cursor: pointer;
+      background: rgba(0,0,0,0.02);
+    }
+
+    .upload-area:hover {
+      border-color: #0066cc;
+      background: rgba(0, 102, 204, 0.05);
+    }
+
+    .upload-area.dragover {
+      border-color: #0066cc;
+      background: rgba(0, 102, 204, 0.1);
+      transform: scale(1.02);
+    }
+
+    .upload-icon {
+      font-size: 4em;
+      margin-bottom: 20px;
+      opacity: 0.5;
+    }
+
+    .upload-text {
+      font-size: 1.2em;
+      color: #333;
+      margin-bottom: 10px;
+    }
+
+    .upload-hint {
+      color: #999;
+      font-size: 0.9em;
+    }
+
+    .file-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 20px;
+      margin-top: 30px;
+    }
+
+    .file-item {
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 12px;
+      padding: 15px;
+      transition: all 0.3s;
+      cursor: pointer;
+    }
+
+    .file-item:hover {
+      transform: translateY(-5px);
+      box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+      border-color: #0066cc;
+    }
+
+    .file-preview {
+      width: 100%;
+      height: 150px;
+      object-fit: cover;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      background: #f5f5f5;
+    }
+
+    .file-icon {
+      width: 100%;
+      height: 150px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 3em;
+      background: #f5f5f5;
+      border-radius: 8px;
+      margin-bottom: 10px;
+    }
+
+    .file-name {
+      font-size: 0.9em;
+      color: #333;
+      margin-bottom: 5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .file-size {
+      font-size: 0.8em;
+      color: #999;
+    }
+
+    .file-actions {
+      display: flex;
+      gap: 5px;
+      margin-top: 10px;
+    }
+
+    .btn {
+      padding: 8px 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85em;
+      transition: all 0.3s;
+      flex: 1;
+    }
+
+    .btn-primary {
+      background: #111;
+      color: white;
+    }
+
+    .btn-danger {
+      background: #e74c3c;
+      color: white;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px);
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #999;
+    }
+
+    @media (max-width: 768px) {
+      .file-grid {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      }
+    }
+    
+    /* 移除所有按钮和可点击元素的焦点轮廓 */
+    button, a, input, select, textarea, [role="button"], [tabindex], .nav-card, .file-item, .upload-area, .hamburger-menu {
+      outline: none !important;
+      -webkit-tap-highlight-color: transparent !important;
+    }
+    
+    button:focus, a:focus, input:focus, select:focus, textarea:focus, [role="button"]:focus, [tabindex]:focus, .nav-card:focus, .file-item:focus, .upload-area:focus, .hamburger-menu:focus {
+      outline: none !important;
+      box-shadow: none !important;
+    }
+  </style>
+</head>
+<body>
+  <img src="/BG/BG.jpg" alt="Background" class="bg-image" id="bgImage">
+  <div class="bg-overlay"></div>
+
+  <!-- 导航栏 -->
+  <div class="card-nav-container">
+    <nav class="card-nav" id="cardNav">
+      <div class="card-nav-top">
+        <div class="hamburger-menu" id="hamburgerMenu">
+          <div class="hamburger-line"></div>
+          <div class="hamburger-line"></div>
+        </div>
+        <div class="logo-container">
+          <span id="siteName">Ser1oux-Blog</span>
+        </div>
+        <a href="/" class="user-info" style="background: linear-gradient(135deg, #000000 0%, #333333 100%); color: #fff; display: flex; align-items: center; justify-content: center; text-decoration: none;">返回首页</a>
+      </div>
+
+      <div class="card-nav-content">
+        <a href="/admin/posts" class="nav-card" style="background-color: #000000; color: #fff;">
+          <div class="nav-card-label">文章</div>
+        </a>
+
+        <a href="/admin/files" class="nav-card" style="background-color: #333333; color: #fff;">
+          <div class="nav-card-label">附件</div>
+        </a>
+
+        <a href="/admin/settings" class="nav-card" style="background-color: #666666; color: #fff;">
+          <div class="nav-card-label">设置</div>
+        </a>
+      </div>
+    </nav>
+  </div>
+
+  <!-- 主内容 -->
+  <div class="container">
+    <div class="section">
+      <h2>上传文件</h2>
+      <div class="upload-area" id="uploadArea" onclick="document.getElementById('fileInput').click()">
+        <div class="upload-text">点击或拖拽文件到此处上传</div>
+        <div class="upload-hint">支持图片、压缩包、文档等各类文件</div>
+        <input type="file" id="fileInput" multiple style="display: none;" onchange="uploadFiles(this.files)">
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>文件列表</h2>
+      <div class="file-grid" id="fileGrid">
+        <div class="empty-state">加载中...</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const hamburgerMenu = document.getElementById('hamburgerMenu');
+    const cardNav = document.getElementById('cardNav');
+    const container = document.querySelector('.container');
+
+    hamburgerMenu.addEventListener('click', () => {
+      hamburgerMenu.classList.toggle('open');
+      cardNav.classList.toggle('open');
+      container.classList.toggle('nav-open');
+    });
+
+    // 拖拽上传
+    const uploadArea = document.getElementById('uploadArea');
+    
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('dragover');
+    });
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      const files = e.dataTransfer.files;
+      if (files.length > 0) uploadFiles(files);
+    });
+
+    async function uploadFiles(files) {
+      for (let file of files) {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        try {
+          const response = await fetch('/api/upload', {
+            method: 'POST',
+            body: formData
+          });
+
+          if (response.ok) {
+            console.log('上传成功:', file.name);
+          } else {
+            alert(`上传失败: ${file.name}`);
+          }
+        } catch (error) {
+          alert(`上传失败: ${file.name}`);
+        }
+      }
+      
+      loadFiles();
+    }
+
+    async function loadFiles() {
+      try {
+        const response = await fetch('/api/files');
+        if (!response.ok) {
+          document.getElementById('fileGrid').innerHTML = '<div class="empty-state">暂无文件</div>';
+          return;
+        }
+
+        const files = await response.json();
+        
+        if (files.length === 0) {
+          document.getElementById('fileGrid').innerHTML = '<div class="empty-state">暂无文件</div>';
+          return;
+        }
+
+        const grid = document.getElementById('fileGrid');
+        grid.innerHTML = files.map(file => {
+          const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(file.name);
+          
+          return `
+            <div class="file-item">
+              ${isImage ? 
+                `<img src="${file.url}" class="file-preview" alt="${file.name}">` :
+                `<div class="file-icon">${getFileIcon(file.name)}</div>`
+              }
+              <div class="file-name" title="${file.name}">${file.name}</div>
+              <div class="file-size">${formatFileSize(file.size)}</div>
+              <div class="file-actions">
+                <button class="btn btn-primary" onclick="copyUrl('${file.url}')">复制链接</button>
+                <button class="btn btn-danger" onclick="deleteFile('${file.name}')">删除</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+      } catch (error) {
+        document.getElementById('fileGrid').innerHTML = '<div class="empty-state">加载失败</div>';
+      }
+    }
+
+    function getFileIcon(filename) {
+      const ext = filename.split('.').pop().toLowerCase();
+      const icons = {
+        'zip': '📦', 'rar': '📦', '7z': '📦',
+        'pdf': '📄', 'doc': '📄', 'docx': '📄',
+        'xls': '📊', 'xlsx': '📊',
+        'mp4': '🎬', 'avi': '🎬', 'mov': '🎬',
+        'mp3': '🎵', 'wav': '🎵',
+      };
+      return icons[ext] || '📎';
+    }
+
+    function formatFileSize(bytes) {
+      if (!bytes) return '未知';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function copyUrl(url) {
+      const fullUrl = window.location.origin + url;
+      navigator.clipboard.writeText(fullUrl).then(() => {
+        alert('链接已复制到剪贴板');
+      });
+    }
+
+    async function deleteFile(filename) {
+      if (!confirm('确定要删除这个文件吗？')) return;
+
+      try {
+        const response = await fetch(`/api/files/${encodeURIComponent(filename)}`, {
+          method: 'DELETE'
+        });
+
+        if (response.ok) {
+          alert('文件已删除');
+          loadFiles();
+        } else {
+          alert('删除失败');
+        }
+      } catch (error) {
+        alert('删除失败');
+      }
+    }
+
+    async function loadSettings() {
+      try {
+        const response = await fetch('/api/settings');
+        if (response.ok) {
+          const settings = await response.json();
+          if (settings.customBackground) {
+            document.getElementById('bgImage').src = settings.customBackground;
+          }
+          if (settings.siteName) {
+            document.getElementById('siteName').textContent = settings.siteName;
+            document.title = settings.siteName + ' - 附件管理';
+          }
+        }
+      } catch (error) {}
+    }
+
+    async function loadUserInfo() {
+      try {
+        const response = await fetch('/api/user-info');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.username) {
+            document.getElementById('usernameDisplay').textContent = data.username;
+          }
+        }
+      } catch (error) {}
+    }
+
+    loadSettings();
+    loadUserInfo();
+    loadFiles();
+  </script>
+</body>
+</html>
+
