@@ -1197,8 +1197,13 @@
 
         <!-- 社交链接 -->
         <div class="card">
-          <h2 class="card-title">社交链接（固定4个）</h2>
+          <h2 class="card-title">社交链接（可留空，最多 4 个）</h2>
+          <p style="color: #888; font-size: 13px; margin: -4px 0 14px;">
+            不需要的条目留空或移除即可，保存时会自动跳过，前台也不会显示。
+          </p>
           <div id="socialLinksContainer"></div>
+          <button type="button" class="btn btn-secondary" id="addSocialBtn"
+                  onclick="addSocialLink()" style="margin-top: 4px;">+ 添加一条</button>
         </div>
 
         <!-- 背景设置 -->
@@ -1566,30 +1571,56 @@
     let bgFile = null;
     let avatarFile = null;
 
-    // 渲染社交链接（固定4个）
+    // 渲染社交链接（可留空，最多 4 条；空条目不保存、前台不显示）
+    function escapeAttr(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
     function renderSocialLinks() {
-      // 确保有4个社交链接
-      while (socialLinks.length < 4) {
-        socialLinks.push({ platform: 'GitHub', url: '' });
-      }
       if (socialLinks.length > 4) {
         socialLinks = socialLinks.slice(0, 4);
       }
-      
+
       const container = document.getElementById('socialLinksContainer');
-      container.innerHTML = socialLinks.map((link, index) => `
-        <div class="social-link-item">
-          <label style="min-width: 80px; font-weight: 500;">位置 ${index + 1}</label>
-          <select class="form-control" onchange="updateSocialLinkPlatform(${index}, this.value)">
-            ${socialPlatforms.map(p => `
-              <option value="${p}" ${link.platform === p ? 'selected' : ''}>${p}</option>
-            `).join('')}
-          </select>
-          <input type="url" class="form-control" value="${link.url}" 
-                 placeholder="输入链接地址" 
-                 onchange="updateSocialLinkUrl(${index}, this.value)">
-        </div>
-      `).join('');
+      if (socialLinks.length === 0) {
+        container.innerHTML = '<p style="color: #999; font-size: 13px; margin: 0 0 12px;">暂未添加社交链接——留空即可，不影响保存。</p>';
+      } else {
+        container.innerHTML = socialLinks.map((link, index) => `
+          <div class="social-link-item">
+            <select class="form-control" onchange="updateSocialLinkPlatform(${index}, this.value)">
+              ${socialPlatforms.map(p => `
+                <option value="${p}" ${link.platform === p ? 'selected' : ''}>${p}</option>
+              `).join('')}
+            </select>
+            <input type="url" class="form-control" value="${escapeAttr(link.url)}"
+                   placeholder="输入链接地址（留空则不保存）"
+                   onchange="updateSocialLinkUrl(${index}, this.value)">
+            <button type="button" class="btn btn-danger btn-sm"
+                    onclick="removeSocialLink(${index})" title="移除这一条"
+                    style="flex-shrink: 0;">✕</button>
+          </div>
+        `).join('');
+      }
+
+      const addBtn = document.getElementById('addSocialBtn');
+      if (addBtn) {
+        addBtn.style.display = socialLinks.length >= 4 ? 'none' : 'inline-block';
+      }
+    }
+
+    function addSocialLink() {
+      if (socialLinks.length >= 4) return;
+      socialLinks.push({ platform: 'GitHub', url: '' });
+      renderSocialLinks();
+    }
+
+    function removeSocialLink(index) {
+      socialLinks.splice(index, 1);
+      renderSocialLinks();
     }
 
     function updateSocialLinkPlatform(index, platform) {
@@ -1725,13 +1756,10 @@
           img.style.display = 'block';
         }
         
-        // 社交链接 - 确保有默认值
-        if (data.socialLinks && data.socialLinks.length > 0) {
-          socialLinks = data.socialLinks;
-        } else {
-          // 如果没有社交链接，保持为空，由站长在下方自行添加
-          socialLinks = [];
-        }
+        // 社交链接 - 过滤掉历史遗留的空条目，允许完全留空
+        socialLinks = (data.socialLinks || [])
+          .filter(l => l && l.url && String(l.url).trim() !== '')
+          .map(l => ({ platform: l.platform || 'GitHub', url: l.url, icon: l.icon || '' }));
         renderSocialLinks();
         
         // 背景 - 显示当前背景或默认背景
@@ -1861,7 +1889,8 @@
           siteStartDate: siteStartDate,
           nickname: document.getElementById('nickname').value,
           bio: document.getElementById('bio').value,
-          socialLinks: socialLinks,
+          // 留空的条目不提交，避免把空壳写进 metadata
+          socialLinks: socialLinks.filter(l => l && l.url && String(l.url).trim() !== ''),
           notice: document.getElementById('announcement').value,
           categories: categories,
           tags: tags

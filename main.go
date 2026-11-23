@@ -2087,7 +2087,14 @@ func updateSettings(w http.ResponseWriter, r *http.Request) {
 		metadata.Bio = *req.Bio
 	}
 	if req.SocialLinks != nil {
-		metadata.SocialLinks = *req.SocialLinks
+		// 社交链接允许留空：过滤掉 url 为空的空壳条目，避免污染持久化数据
+		cleaned := make([]SocialLink, 0, len(*req.SocialLinks))
+		for _, l := range *req.SocialLinks {
+			if strings.TrimSpace(l.URL) != "" {
+				cleaned = append(cleaned, l)
+			}
+		}
+		metadata.SocialLinks = cleaned
 	}
 	if req.Categories != nil {
 		metadata.Categories = *req.Categories

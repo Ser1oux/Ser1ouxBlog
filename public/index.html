@@ -1940,15 +1940,16 @@
          const bio = settings.bio || boot.bio || '';
          typeWriter(bioElement, bio, 150, 100, 2000);
 
-        // 更新社交链接
+        // 更新社交链接（留空则不渲染，容器一并隐藏，避免留下空白占位）
         const socialLinksContainer = document.getElementById('socialLinks');
         socialLinksContainer.innerHTML = '';
-        
-        // 默认社交链接
-        const linksToShow = (settings.socialLinks && settings.socialLinks.length > 0)
-          ? settings.socialLinks.slice(0, 4)
-          : [];
-        
+
+        const linksToShow = (settings.socialLinks || [])
+          .filter(link => link && link.url && String(link.url).trim() !== '')
+          .slice(0, 4);
+
+        socialLinksContainer.style.display = linksToShow.length === 0 ? 'none' : '';
+
         linksToShow.forEach(link => {
           const a = document.createElement('a');
           // 处理邮箱链接
