@@ -244,4 +244,104 @@
   .gl-notify-item.unread { background: rgba(59, 130, 246, 0.12) !important; }
   .gl-notify-item:hover { background: rgba(255, 255, 255, 0.06) !important; }
   .gl-notify-body { color: #a8a8b0 !important; }
+
+  /* ---------- 首页卡片与侧栏文字（v3：此前只改了卡片底色，字仍是深色，等于深底深字） ---------- */
+  .post-title,
+  .profile-nickname,
+  .stat-value,
+  .notice-title {
+    color: #ececee !important;
+  }
+
+  .post-tag,
+  .tag-item,
+  .category-item,
+  .profile-bio,
+  .notice-content,
+  .stat-label,
+  .footer-content,
+  .social-link,
+  .typing-cursor {
+    color: #a8a8ad !important;
+  }
+
+  /* 标签/分类的小底色是 rgba(0,0,0,.08)，深色卡片上完全看不出，改用白色半透明 */
+  .post-tag,
+  .tag-item,
+  .category-item {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.14) !important;
+  }
+
+  .post-tag:hover,
+  .tag-item:hover,
+  .category-item:hover {
+    background: rgba(255, 255, 255, 0.16) !important;
+    color: #ececee !important;
+    border-color: rgba(255, 255, 255, 0.24) !important;
+  }
+
+  /* 分类徽标是纯黑底白字，深色卡片上像一块黑洞，改为浅色半透明 */
+  .post-category {
+    background: rgba(255, 255, 255, 0.16) !important;
+    color: #ececee !important;
+  }
+
+  /* 打字光标与个人签名区的分隔感 */
+  .typing-cursor {
+    background-color: #a8a8ad !important;
+  }
+
+  /* 侧栏统计区在深色下边框过暗 */
+  .stat-item {
+    border-color: rgba(255, 255, 255, 0.12) !important;
+  }
+
+  /* 页脚链接 */
+  .footer-content a {
+    color: #9a9aa0 !important;
+  }
+
+  /* ---------- 内页正文与标题（v4：此前只处理首页卡片，文章页/归档/留言板仍是深色字） ---------- */
+  .post-content,
+  .post-content p,
+  .post-content li,
+  .about-content,
+  .about-content p,
+  .about-title,
+  .page-title,
+  .profile-title,
+  .list-title,
+  .login-title,
+  .msg-author,
+  .user-info-value {
+    color: #d8d8dc !important;
+  }
+
+  .post-meta,
+  .login-subtitle,
+  .user-info-label,
+  .login-hint,
+  .form-user,
+  .msg-content,
+  .back-link,
+  .send-code-btn,
+  .tab-button {
+    color: #a8a8ad !important;
+  }
+
+  /* 文章页标签底色在深色下不可见 */
+  .tag {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border-color: rgba(255, 255, 255, 0.14) !important;
+  }
+
+  /* 行内代码：原底色是 rgba(0,0,0,.05)，深色背景上等于透明 */
+  .post-content code {
+    background: rgba(255, 255, 255, 0.12) !important;
+  }
+  /* 代码块内部不动，交给 highlight.js 的 github-dark 主题 */
+  .post-content pre code {
+    background: transparent !important;
+  }
 }
