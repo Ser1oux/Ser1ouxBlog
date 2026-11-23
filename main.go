@@ -417,7 +417,8 @@ func main() {
 	api.HandleFunc("/reset-password", resetPassword).Methods("POST")
 	api.HandleFunc("/change-email", requireAuth(changeEmail)).Methods("POST")
 	api.HandleFunc("/comments/{slug}", getComments).Methods("GET")
-	api.HandleFunc("/comments", requireUserAuth(createComment)).Methods("POST")
+	// 评论：允许游客发表，鉴权在 handler 内部区分登录用户与游客
+	api.HandleFunc("/comments", createComment).Methods("POST")
 	api.HandleFunc("/comments/{id}", requireUserAuth(deleteComment)).Methods("DELETE")
 	api.HandleFunc("/notifications", requireUserAuth(getNotifications)).Methods("GET")
 	api.HandleFunc("/notifications/read", requireUserAuth(readNotifications)).Methods("POST")
@@ -863,15 +864,43 @@ func getComments(w http.ResponseWriter, r *http.Request) {
 }
 
 // 发表评论（需登录）
+// guestUserID 为未登录访客生成稳定的匿名标识。
+// 用 IP 的 FNV 哈希而非明文：既能区分不同访客，又不会把真实 IP 暴露给前端。
+func guestUserID(clientIP string) string {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(strings.TrimSpace(clientIP)))
+	return fmt.Sprintf("guest-%08x", h.Sum32())
+}
+
+// adminSessionUser 返回应绑定到管理员会话的用户记录。
+// 登录接口此前只写入 admin=true，从不写入 userID，导致管理员重新登录后
+// 无法通过 requireUserAuth（评论等接口一律 401）。这里补上绑定。
+func adminSessionUser(metadata *Metadata) *User {
+	for i := range metadata.Users {
+		if metadata.Users[i].IsAdmin {
+			return &metadata.Users[i]
+		}
+	}
+	if metadata.Admin != nil && metadata.Admin.Username != "" {
+		for i := range metadata.Users {
+			if metadata.Users[i].Username == metadata.Admin.Username {
+				return &metadata.Users[i]
+			}
+		}
+	}
+	return nil
+}
+
 func createComment(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, "session")
-	userID, _ := session.Values["userID"].(string)
+	sessionUserID, _ := session.Values["userID"].(string)
 
 	var req struct {
 		PostSlug string `json:"postSlug"`
 		PostID   string `json:"postId"`
 		Content  string `json:"content"`
 		ParentID string `json:"parentId"`
+		Nickname string `json:"nickname"` // 游客昵称；登录用户忽略此字段
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -909,14 +938,38 @@ func createComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user := findUserByID(metadata, userID)
-	if user == nil {
-		http.Error(w, "用户不存在，请重新登录", http.StatusUnauthorized)
-		return
-	}
+	user := findUserByID(metadata, sessionUserID)
 
 	// IP 归属地解析涉及外部 HTTP 请求，放在锁外执行
 	clientIP := getClientIP(r)
+
+	// 身份判定：已登录走账号信息；未登录按游客处理（独立限流 + 自填昵称）
+	commenter := User{}
+	avatar := ""
+	if user != nil {
+		commenter = *user
+		avatar = resolveUserAvatar(user)
+		if !rateLimitAllow(w, "comment-user:"+user.ID, 20, 10*time.Minute) {
+			return
+		}
+	} else {
+		// 游客：每 IP 10 分钟最多 5 条，防止刷屏
+		if !rateLimitAllow(w, "comment-guest:"+clientIP, 5, 10*time.Minute) {
+			return
+		}
+		nick := sanitizeDisplayText(strings.TrimSpace(req.Nickname))
+		if runes := []rune(nick); len(runes) > 20 {
+			nick = string(runes[:20])
+		}
+		if nick == "" {
+			nick = "匿名游客"
+		}
+		guestID := guestUserID(clientIP)
+		commenter = User{ID: guestID, Username: "guest", Nickname: nick}
+		// 同一 IP 的游客共用固定头像，避免每次评论头像乱跳
+		avatar = defaultAvatarURL(guestID)
+	}
+
 	ua := r.Header.Get("User-Agent")
 	browser, osName := parseUserAgent(ua)
 	location := resolveIPLocation(clientIP)
@@ -925,7 +978,7 @@ func createComment(w http.ResponseWriter, r *http.Request) {
 	var snapshot *CommentsData
 	var replyErr error
 	err = withComments(func(cstore *CommentsData) error {
-		rootID, replyToID, replyToName, err := resolveCommentReply(cstore, post.Slug, strings.TrimSpace(req.ParentID), userID)
+		rootID, replyToID, replyToName, err := resolveCommentReply(cstore, post.Slug, strings.TrimSpace(req.ParentID), commenter.ID)
 		if err != nil {
 			replyErr = err
 			return err
@@ -934,10 +987,10 @@ func createComment(w http.ResponseWriter, r *http.Request) {
 		comment = Comment{
 			ID:          fmt.Sprintf("%d", time.Now().UnixNano()),
 			PostSlug:    post.Slug, // 始终存库内标准 slug
-			UserID:      user.ID,
-			Username:    user.Username,
-			Nickname:    user.Nickname,
-			Avatar:      resolveUserAvatar(user),
+			UserID:      commenter.ID,
+			Username:    commenter.Username,
+			Nickname:    commenter.Nickname,
+			Avatar:      avatar,
 			Content:     sanitizeDisplayText(req.Content),
 			CreatedAt:   time.Now(),
 			ParentID:    rootID,
@@ -965,7 +1018,7 @@ func createComment(w http.ResponseWriter, r *http.Request) {
 	}
 
 	baseURL := publicBaseURL(r)
-	go notifyNewComment(metadata, *post, comment, *user, snapshot, baseURL)
+	go notifyNewComment(metadata, *post, comment, commenter, snapshot, baseURL)
 
 	// 返回时不带敏感字段
 	resp := comment
@@ -1331,6 +1384,11 @@ func login(w http.ResponseWriter, r *http.Request) {
 
 		session, _ := store.Get(r, "session")
 		session.Values["admin"] = true
+		if u := adminSessionUser(metadata); u != nil {
+			session.Values["userID"] = u.ID
+			session.Values["username"] = u.Username
+			session.Values["isAdmin"] = u.IsAdmin
+		}
 		session.Save(r, w)
 
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -1348,6 +1406,11 @@ func login(w http.ResponseWriter, r *http.Request) {
 
 	session, _ := store.Get(r, "session")
 	session.Values["admin"] = true
+	if u := adminSessionUser(metadata); u != nil {
+		session.Values["userID"] = u.ID
+		session.Values["username"] = u.Username
+		session.Values["isAdmin"] = u.IsAdmin
+	}
 	session.Save(r, w)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{

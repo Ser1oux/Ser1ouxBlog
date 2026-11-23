@@ -543,6 +543,25 @@
       outline: none !important;
     }
 
+    /* 游客昵称输入：与评论框保持一致的视觉规格 */
+    .comment-form input.guest-nickname {
+      width: 100%;
+      border: 1px solid #e5e5e5;
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-size: 0.95rem;
+      font-family: inherit;
+      box-sizing: border-box;
+      margin-bottom: 10px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .comment-form input.guest-nickname:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+      outline: none !important;
+    }
+
     .comment-form-actions {
       display: flex;
       justify-content: space-between;
@@ -1180,12 +1199,20 @@
           </div>
         `;
       } else {
+        // 未登录：以游客身份评论，昵称选填
         formHtml = `
-          <div class="comment-login-hint">
-            登录后才能发表评论。
-            <a href="${loginUrl}">去登录</a>
-            或
-            <a href="${loginUrl}">注册账号</a>
+          <div class="comment-form">
+            <div class="comment-form-user">
+              <img src="/api/default-avatar?seed=guest" alt="avatar" onerror="this.src='/api/default-avatar?seed=user'">
+              <span>以 <strong>游客</strong> 身份评论</span>
+            </div>
+            <input type="text" id="guestNickname" class="guest-nickname" maxlength="20"
+                   placeholder="昵称（选填，默认「匿名游客」）" autocomplete="nickname">
+            <textarea id="commentInput" maxlength="1000" placeholder="说点什么吧…"></textarea>
+            <div class="comment-form-actions">
+              <span class="hint">最多 1000 字 · 无需登录，<a href="${loginUrl}">登录</a>后可显示你的头像</span>
+              <button type="button" class="comment-submit" id="commentSubmitBtn">发表评论</button>
+            </div>
           </div>
         `;
       }
@@ -1312,6 +1339,11 @@
           content
         };
         if (parentId) payload.parentId = parentId;
+        // 游客评论：附带自填昵称（登录用户不需要）
+        if (!currentUser) {
+          const nickEl = document.querySelector('.guest-nickname');
+          if (nickEl && nickEl.value.trim()) payload.nickname = nickEl.value.trim();
+        }
         const res = await fetch('/api/comments', {
           method: 'POST',
           credentials: 'same-origin',
