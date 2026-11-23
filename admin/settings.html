@@ -1748,8 +1748,8 @@
         desktopImg.style.display = 'block';
         mobileImg.style.display = 'block';
         
-        // 公告
-        document.getElementById('announcement').value = data.announcement || '';
+        // 公告（后端字段名为 notice）
+        document.getElementById('announcement').value = data.notice || '';
         
         // 分类和标签
         categories = data.categories || [];
@@ -1862,7 +1862,7 @@
           nickname: document.getElementById('nickname').value,
           bio: document.getElementById('bio').value,
           socialLinks: socialLinks,
-          announcement: document.getElementById('announcement').value,
+          notice: document.getElementById('announcement').value,
           categories: categories,
           tags: tags
         };

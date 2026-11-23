@@ -2037,18 +2037,21 @@ func getSettings(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// UpdateSettingsRequest 采用指针字段，用于区分"未提交"与"提交了空值"。
+// 前端设置页并不会每次提交所有字段（例如未换头像时不发 avatar），
+// 若用值类型接收，未提交的字段会被零值覆盖，导致头像 / 邮箱 / GitHub 链接被清空。
 type UpdateSettingsRequest struct {
-	SiteName      string       `json:"siteName"`
-	GitHubURL     string       `json:"githubUrl"`
-	EmailAddress  string       `json:"emailAddress"`
-	Avatar        string       `json:"avatar"`
-	Nickname      string       `json:"nickname"`
-	Bio           string       `json:"bio"`
-	SocialLinks   []SocialLink `json:"socialLinks"`
-	Categories    []string     `json:"categories"`
-	Tags          []string     `json:"tags"`
-	Notice        string       `json:"notice"`
-	SiteStartDate string       `json:"siteStartDate"`
+	SiteName      *string       `json:"siteName"`
+	GitHubURL     *string       `json:"githubUrl"`
+	EmailAddress  *string       `json:"emailAddress"`
+	Avatar        *string       `json:"avatar"`
+	Nickname      *string       `json:"nickname"`
+	Bio           *string       `json:"bio"`
+	SocialLinks   *[]SocialLink `json:"socialLinks"`
+	Categories    *[]string     `json:"categories"`
+	Tags          *[]string     `json:"tags"`
+	Notice        *string       `json:"notice"`
+	SiteStartDate *string       `json:"siteStartDate"`
 }
 
 func updateSettings(w http.ResponseWriter, r *http.Request) {
@@ -2064,17 +2067,40 @@ func updateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metadata.SiteName = req.SiteName
-	metadata.GitHubURL = req.GitHubURL
-	metadata.EmailAddress = req.EmailAddress
-	metadata.Avatar = req.Avatar
-	metadata.Nickname = req.Nickname
-	metadata.Bio = req.Bio
-	metadata.SocialLinks = req.SocialLinks
-	metadata.Categories = req.Categories
-	metadata.Tags = req.Tags
-	metadata.Notice = req.Notice
-	metadata.SiteStartDate = req.SiteStartDate
+	// 逐个字段判断：只有请求中显式出现的字段才更新，未出现的保留原值。
+	if req.SiteName != nil {
+		metadata.SiteName = *req.SiteName
+	}
+	if req.GitHubURL != nil {
+		metadata.GitHubURL = *req.GitHubURL
+	}
+	if req.EmailAddress != nil {
+		metadata.EmailAddress = *req.EmailAddress
+	}
+	if req.Avatar != nil {
+		metadata.Avatar = *req.Avatar
+	}
+	if req.Nickname != nil {
+		metadata.Nickname = *req.Nickname
+	}
+	if req.Bio != nil {
+		metadata.Bio = *req.Bio
+	}
+	if req.SocialLinks != nil {
+		metadata.SocialLinks = *req.SocialLinks
+	}
+	if req.Categories != nil {
+		metadata.Categories = *req.Categories
+	}
+	if req.Tags != nil {
+		metadata.Tags = *req.Tags
+	}
+	if req.Notice != nil {
+		metadata.Notice = *req.Notice
+	}
+	if req.SiteStartDate != nil {
+		metadata.SiteStartDate = *req.SiteStartDate
+	}
 
 	if err := saveMetadata(metadata); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

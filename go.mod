@@ -10,4 +10,8 @@ require (
 	golang.org/x/text v0.21.0
 )
 
-require github.com/gorilla/securecookie v1.1.2 // indirect
+require (
+	github.com/gorilla/securecookie v1.1.2 // indirect
+	golang.org/x/net v0.21.0 // indirect
+	golang.org/x/sys v0.28.0 // indirect
+)
