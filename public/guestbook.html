@@ -83,6 +83,18 @@
       box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
       outline: none;
     }
+    /* 游客昵称输入：与留言框保持一致的视觉规格 */
+    #composer input.guest-nickname {
+      width: 100%; border: 1px solid #e5e5e5; border-radius: 12px;
+      padding: 12px 16px; font-size: 0.95rem; font-family: inherit;
+      box-sizing: border-box; margin-bottom: 10px;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    #composer input.guest-nickname:focus {
+      border-color: #93c5fd;
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.12);
+      outline: none;
+    }
     .form-actions {
       display: flex; justify-content: space-between; align-items: center;
       margin-top: 10px; gap: 12px;
@@ -158,7 +170,7 @@
   <div class="container">
     <div class="panel">
       <h1 class="page-title">留言板</h1>
-      <p class="page-desc">欢迎留下你的想法、建议或问候。登录后即可发表，所有人可见。</p>
+      <p class="page-desc">欢迎留下你的想法、建议或问候。无需登录即可发表，所有人可见。</p>
       <div id="composer"></div>
     </div>
     <div class="panel">
@@ -232,14 +244,21 @@
       const el = document.getElementById('composer');
       const loginUrl = `/login?redirect=${encodeURIComponent('/guestbook')}`;
       if (!currentUser) {
+        // 未登录：以游客身份留言，昵称选填
         el.innerHTML = `
-          <div class="login-hint">
-            登录后才能留言。
-            <a href="${loginUrl}">去登录</a>
-            或
-            <a href="${loginUrl}">注册账号</a>
+          <div class="form-user">
+            <img src="/api/default-avatar?seed=guest" alt="" onerror="this.src='/api/default-avatar?seed=user'">
+            <span>以 <strong>游客</strong> 身份留言</span>
+          </div>
+          <input type="text" id="guestNickname" class="guest-nickname" maxlength="20"
+                 placeholder="昵称（选填，默认「匿名游客」）" autocomplete="nickname">
+          <textarea id="msgInput" maxlength="1000" placeholder="说点什么吧…"></textarea>
+          <div class="form-actions">
+            <span class="hint">最多 1000 字 · 无需登录，<a href="${loginUrl}">登录</a>后可显示你的头像</span>
+            <button type="button" class="submit-btn" id="msgSubmit">发表留言</button>
           </div>
         `;
+        document.getElementById('msgSubmit').addEventListener('click', submitMessage);
         return;
       }
       const name = currentUser.nickname || currentUser.username || '用户';
@@ -251,7 +270,7 @@
         </div>
         <textarea id="msgInput" maxlength="1000" placeholder="说点什么吧…"></textarea>
         <div class="form-actions">
-          <span class="hint">最多 1000 字 · 仅登录用户可留言</span>
+          <span class="hint">最多 1000 字</span>
           <button type="button" class="submit-btn" id="msgSubmit">发表留言</button>
         </div>
       `;
@@ -309,11 +328,17 @@
       }
       btn.disabled = true;
       try {
+        const payload = { content };
+        // 游客留言：附带自填昵称（登录用户不需要）
+        if (!currentUser) {
+          const nickEl = document.querySelector('.guest-nickname');
+          if (nickEl && nickEl.value.trim()) payload.nickname = nickEl.value.trim();
+        }
         const res = await fetch('/api/messages', {
           method: 'POST',
           credentials: 'same-origin',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ content })
+          body: JSON.stringify(payload)
         });
         if (res.status === 401) {
           showToast('请先登录', 'error');

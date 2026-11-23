@@ -426,7 +426,8 @@ func main() {
 	api.HandleFunc("/default-cover", serveDefaultCover).Methods("GET")
 	api.HandleFunc("/upload-avatar", requireUserAuth(uploadAvatar)).Methods("POST")
 	api.HandleFunc("/messages", getMessages).Methods("GET")
-	api.HandleFunc("/messages", requireUserAuth(createMessage)).Methods("POST")
+	// 留言：允许游客发表，鉴权在 handler 内部区分登录用户与游客
+	api.HandleFunc("/messages", createMessage).Methods("POST")
 	api.HandleFunc("/messages/{id}", requireUserAuth(deleteMessage)).Methods("DELETE")
 
 	// 静态文件（禁用目录列表）
@@ -1115,13 +1116,14 @@ func getMessages(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(list)
 }
 
-// 发表留言（需登录）
+// 发表留言（登录用户与游客均可）
 func createMessage(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, "session")
-	userID, _ := session.Values["userID"].(string)
+	sessionUserID, _ := session.Values["userID"].(string)
 
 	var req struct {
-		Content string `json:"content"`
+		Content  string `json:"content"`
+		Nickname string `json:"nickname"` // 游客昵称；登录用户忽略此字段
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -1142,23 +1144,45 @@ func createMessage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	user := findUserByID(metadata, userID)
-	if user == nil {
-		http.Error(w, "用户不存在，请重新登录", http.StatusUnauthorized)
-		return
-	}
 
 	clientIP := getClientIP(r)
+
+	// 身份判定：已登录用账号信息；未登录按游客处理（独立限流 + 自填昵称）
+	commenter := User{}
+	avatar := ""
+	if user := findUserByID(metadata, sessionUserID); user != nil {
+		commenter = *user
+		avatar = resolveUserAvatar(user)
+		if !rateLimitAllow(w, "message-user:"+user.ID, 10, 10*time.Minute) {
+			return
+		}
+	} else {
+		// 游客：每 IP 10 分钟最多 3 条，留言板更显眼，收紧一些
+		if !rateLimitAllow(w, "message-guest:"+clientIP, 3, 10*time.Minute) {
+			return
+		}
+		nick := sanitizeDisplayText(strings.TrimSpace(req.Nickname))
+		if runes := []rune(nick); len(runes) > 20 {
+			nick = string(runes[:20])
+		}
+		if nick == "" {
+			nick = "匿名游客"
+		}
+		guestID := guestUserID(clientIP)
+		commenter = User{ID: guestID, Username: "guest", Nickname: nick}
+		avatar = defaultAvatarURL(guestID)
+	}
+
 	ua := r.Header.Get("User-Agent")
 	browser, osName := parseUserAgent(ua)
 	location := resolveIPLocation(clientIP)
 
 	msg := GuestbookMessage{
 		ID:        fmt.Sprintf("%d", time.Now().UnixNano()),
-		UserID:    user.ID,
-		Username:  user.Username,
-		Nickname:  user.Nickname,
-		Avatar:    resolveUserAvatar(user),
+		UserID:    commenter.ID,
+		Username:  commenter.Username,
+		Nickname:  commenter.Nickname,
+		Avatar:    avatar,
 		Content:   sanitizeDisplayText(req.Content),
 		CreatedAt: time.Now(),
 		Location:  location,
