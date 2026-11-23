@@ -505,6 +505,7 @@
       grid-template-columns: repeat(2, 1fr);
       gap: 30px;
       align-content: start;
+      align-items: stretch; /* 同一行卡片强制等高，避免随标题行数浮动 */
       position: relative;
       z-index: 1; /* 降低到底层 */
     }
@@ -514,7 +515,8 @@
       background: rgba(255, 255, 255, 0.75);
       backdrop-filter: blur(20px) saturate(150%);
       -webkit-backdrop-filter: blur(20px) saturate(150%);
-      border: 1px solid rgba(255, 255, 255, 0.5);
+      /* 原为 rgba(255,255,255,.5) 的半透明白边框，贴在封面内侧会形成一圈白线 */
+      border: 1px solid rgba(0, 0, 0, 0.06);
       border-radius: 1.5rem;
       overflow: hidden;
       /* 移除阴影以避免重叠问题 */
@@ -526,7 +528,7 @@
       position: relative;
       z-index: 2; /* 降低文章卡片基础层级 */
       width: 100%;
-      height: auto;
+      height: 100%; /* 配合网格 stretch，保证同一行卡片等高 */
       min-height: 0;
     }
 
@@ -544,7 +546,9 @@
 
     /* 封面图 - 16:9 比例 */
     .post-cover {
-      width: 100%;
+      /* 负 margin 盖住卡片 1px 边框，避免封面四周露出一圈白线 */
+      width: calc(100% + 2px);
+      margin: -1px -1px 0;
       aspect-ratio: 16 / 9;
       object-fit: cover;
       display: block;
@@ -1069,7 +1073,8 @@
         background: rgba(255, 255, 255, 0.85);
         backdrop-filter: blur(20px) saturate(150%);
         -webkit-backdrop-filter: blur(20px) saturate(150%);
-        border: 1px solid rgba(255, 255, 255, 0.7);
+        /* 与桌面端一致：白色边框会在封面上形成白线 */
+        border: 1px solid rgba(0, 0, 0, 0.06);
       }
 
       .post-cover {
