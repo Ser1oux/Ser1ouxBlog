@@ -1585,13 +1585,33 @@ func getExcerpt(content string, length int) string {
 	opts := html.RendererOptions{Flags: htmlFlags}
 	renderer := html.NewRenderer(opts)
 
-	html := markdown.Render(doc, renderer)
-	text := string(html)
+	htmlOut := string(markdown.Render(doc, renderer))
 
-	// 简单去除 HTML 标签
-	text = strings.ReplaceAll(text, "<p>", "")
-	text = strings.ReplaceAll(text, "</p>", " ")
-	text = strings.ReplaceAll(text, "<br>", " ")
+	// 剥离全部 HTML 标签：原实现只处理 <p>/<br>，标题、列表、代码块的标签会残留在摘要里
+	var sb strings.Builder
+	inTag := false
+	for _, r := range htmlOut {
+		switch {
+		case r == '<':
+			inTag = true
+		case r == '>':
+			inTag = false
+			sb.WriteRune(' ')
+		case !inTag:
+			sb.WriteRune(r)
+		}
+	}
+
+	// 还原常见实体，并压缩连续空白
+	text := strings.NewReplacer(
+		"&amp;", "&",
+		"&lt;", "<",
+		"&gt;", ">",
+		"&quot;", "\"",
+		"&#39;", "'",
+		"&nbsp;", " ",
+	).Replace(sb.String())
+	text = strings.Join(strings.Fields(text), " ")
 
 	runes := []rune(text)
 	if len(runes) > length {
