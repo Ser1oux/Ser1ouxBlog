@@ -2049,8 +2049,9 @@
             };
 
             // 封面图：未配图时自动按标题生成渐变字卡，发文无需找图
+            // v=2：封面用字规则变更后提升版本号，避免浏览器命中 7 天缓存
             const coverSrc = post.cover ||
-              `/api/default-cover?seed=${encodeURIComponent(post.slug || post.id)}&title=${encodeURIComponent(post.title)}`;
+              `/api/default-cover?v=2&seed=${encodeURIComponent(post.slug || post.id)}&title=${encodeURIComponent(post.title)}`;
             const coverHTML =
               `<img class="post-cover" src="${esc(coverSrc)}" alt="${esc(post.title)}" loading="lazy">`;
 

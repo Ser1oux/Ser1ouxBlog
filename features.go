@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -119,6 +120,43 @@ var coverPalettes = [][2]string{
 	{"#2b5876", "#4e4376"},
 }
 
+// coverGlyphs 提取封面用字。
+// 优先取中文：中文标题按原顺序切前两字最自然，避免出现「多A」这类中英混排。
+// 无中文时退化为前两个大写字母/数字，仍无内容则回退固定字。
+func coverGlyphs(title, seed string) string {
+	src := []rune(strings.TrimSpace(title))
+	if len(src) == 0 {
+		src = []rune(seed)
+	}
+
+	var han []rune
+	for _, r := range src {
+		if unicode.Is(unicode.Han, r) {
+			han = append(han, r)
+			if len(han) == 2 {
+				break
+			}
+		}
+	}
+	if len(han) > 0 {
+		return string(han)
+	}
+
+	var latin []rune
+	for _, r := range src {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			latin = append(latin, unicode.ToUpper(r))
+			if len(latin) == 2 {
+				break
+			}
+		}
+	}
+	if len(latin) > 0 {
+		return string(latin)
+	}
+	return "B"
+}
+
 // serveDefaultCover GET /api/default-cover?seed=xxx&title=yyy
 // 文章未配封面时按标题生成一张渐变字卡，免去每次发文找图。
 func serveDefaultCover(w http.ResponseWriter, r *http.Request) {
@@ -135,16 +173,16 @@ func serveDefaultCover(w http.ResponseWriter, r *http.Request) {
 	_, _ = h.Write([]byte(seed))
 	pair := coverPalettes[h.Sum32()%uint32(len(coverPalettes))]
 
-	// 取标题前两个字符作为封面字（无标题则用 seed）
-	runes := []rune(title)
-	if len(runes) == 0 {
-		runes = []rune(seed)
-	}
-	if len(runes) > 2 {
-		runes = runes[:2]
-	}
+	// 封面用字：优先取中文，避免中英混排（例：「多Agent工作台」取「多工」而非「多A」）
+	glyph := coverGlyphs(title, seed)
 	var letter strings.Builder
-	_ = xml.EscapeText(&letter, []byte(string(runes)))
+	_ = xml.EscapeText(&letter, []byte(glyph))
+
+	// 单字放大，双字常规，保证视觉重量接近
+	fontSize := 150
+	if len([]rune(glyph)) <= 1 {
+		fontSize = 200
+	}
 
 	svg := fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450">
   <defs>
@@ -157,8 +195,8 @@ func serveDefaultCover(w http.ResponseWriter, r *http.Request) {
   <circle cx="120" cy="380" r="180" fill="rgba(255,255,255,0.07)"/>
   <circle cx="700" cy="80" r="140" fill="rgba(255,255,255,0.09)"/>
   <circle cx="640" cy="400" r="90" fill="rgba(0,0,0,0.06)"/>
-  <text x="400" y="258" dy="0.35em" text-anchor="middle" fill="rgba(255,255,255,0.94)" font-family="system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-size="150" font-weight="700">%s</text>
-</svg>`, pair[0], pair[1], letter.String())
+  <text x="400" y="258" dy="0.35em" text-anchor="middle" fill="rgba(255,255,255,0.94)" font-family="system-ui,-apple-system,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif" font-size="%d" font-weight="700">%s</text>
+</svg>`, pair[0], pair[1], fontSize, letter.String())
 
 	w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
 	w.Header().Set("Cache-Control", "public, max-age=604800")
