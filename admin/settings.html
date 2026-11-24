@@ -1104,7 +1104,7 @@
           <div class="hamburger-line"></div>
         </div>
         <div class="logo-container">
-          <span id="siteName">Ser1oux-Blog 管理</span>
+          <span id="brandTitle">Ser1oux-Blog 管理</span>
         </div>
         <a href="/" class="card-nav-cta-button" style="background: linear-gradient(135deg, #000000 0%, #333333 100%); color: #fff; display: flex; align-items: center; justify-content: center;">返回首页</a>
       </div>
@@ -1733,6 +1733,9 @@
         
         // 基本设置
         document.getElementById('siteName').value = data.siteName || '';
+        // 顶部品牌标题与站点名同步（原实现与输入框共用 id，导致读写错元素）
+        const brandEl = document.getElementById('brandTitle');
+        if (brandEl) brandEl.textContent = (data.siteName || 'Ser1oux-Blog') + ' 管理';
         
         // 解析站点创建时间
         if (data.siteStartDate) {
