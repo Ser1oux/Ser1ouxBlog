@@ -1,0 +1,17 @@
+# 运行镜像：复用已有的 blog-gl-blog:latest（含 alpine + 证书 + 时区数据）
+# 只替换应用二进制与 BG 静态资源，避免重新拉取 golang 基础镜像
+FROM blog-gl-blog:latest
+
+WORKDIR /app
+
+COPY gl-blog-new /app/gl-blog
+COPY BG/ /app/BG/
+
+RUN chmod +x /app/gl-blog
+
+EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/ || exit 1
+
+CMD ["./gl-blog"]
