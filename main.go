@@ -2308,14 +2308,74 @@ func blockSetupIfCompleted(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// 访客去重：同一 IP + UA 每天只计一次，避免刷新页面重复累加。
+// 内存态即可：进程重启后当天已访问者会再计一次，对个人站点可接受。
+var (
+	visitMu   sync.Mutex
+	visitDay  string
+	visitSeen = make(map[string]struct{})
+)
+
+// visitorFingerprint 生成访客指纹（IP + User-Agent 的哈希，不落盘明文）
+func visitorFingerprint(r *http.Request) string {
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(getClientIP(r)))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(r.Header.Get("User-Agent")))
+	return strconv.FormatUint(h.Sum64(), 16)
+}
+
+// isCrawler 过滤机器流量：只把带浏览器特征（Mozilla/）且不含爬虫关键字的请求算作访客。
+// 这样 curl / python-requests / RSS 阅读器等脚本不会被计入访客数。
+func isCrawler(r *http.Request) bool {
+	ua := strings.ToLower(strings.TrimSpace(r.Header.Get("User-Agent")))
+	if !strings.Contains(ua, "mozilla") {
+		return true
+	}
+	for _, k := range []string{"bot", "spider", "crawl", "scan", "headless", "monitor", "preview", "phantom", "slurp", "lighthouse"} {
+		if strings.Contains(ua, k) {
+			return true
+		}
+	}
+	return false
+}
+
+// shouldCountVisit 判断本次访问是否应计入统计
+func shouldCountVisit(r *http.Request) bool {
+	if isCrawler(r) {
+		return false
+	}
+	today := time.Now().Format("2006-01-02")
+	fp := visitorFingerprint(r)
+
+	visitMu.Lock()
+	defer visitMu.Unlock()
+
+	if visitDay != today {
+		visitDay = today
+		visitSeen = make(map[string]struct{})
+	}
+	if _, ok := visitSeen[fp]; ok {
+		return false
+	}
+	// 防御：伪造海量指纹撑爆内存时整体重置
+	if len(visitSeen) > 200000 {
+		visitSeen = make(map[string]struct{})
+	}
+	visitSeen[fp] = struct{}{}
+	return true
+}
+
 func trackVisitor(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// 简单的访客统计（每次访问首页+1），同时记录到按日统计供图表使用
-		_ = withMetadata(func(metadata *Metadata) error {
-			metadata.VisitorCount++
-			return nil
-		})
-		bumpDailyVisitor()
+		// 按“独立访客/天”计，而非每次请求
+		if shouldCountVisit(r) {
+			_ = withMetadata(func(metadata *Metadata) error {
+				metadata.VisitorCount++
+				return nil
+			})
+			bumpDailyVisitor()
+		}
 		next(w, r)
 	}
 }
