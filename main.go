@@ -166,6 +166,30 @@ func rateLimitAllow(w http.ResponseWriter, key string, max int, window time.Dura
 
 // securityHeaders 为所有响应添加基础安全头。
 // CSP 暂不启用：页面大量内联脚本，需要专项改造后才能收紧。
+// http500 统一处理 500：细节只进服务端日志，不把内部错误（可能含文件路径）返回给客户端。
+func http500(w http.ResponseWriter, err error) {
+	log.Printf("[500] %v", err)
+	http.Error(w, "服务器内部错误", http.StatusInternalServerError)
+}
+
+// sameOriginCheck 同源校验（CSRF 防护）：状态变更请求若携带 Origin 头，其主机必须与请求目标一致。
+// 浏览器对跨站 POST 会带 Origin；非浏览器客户端（curl 等）不带 Origin，直接放行。
+// 配合 SameSite=Lax cookie 构成双层防护。
+func sameOriginCheck(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && r.Method != http.MethodOptions {
+			if origin := r.Header.Get("Origin"); origin != "" {
+				u, err := url.Parse(origin)
+				if err != nil || u.Host != r.Host {
+					http.Error(w, "跨站请求被拒绝", http.StatusForbidden)
+					return
+				}
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -372,6 +396,7 @@ func main() {
 	// 全局中间件：安全响应头 + 请求体大小上限
 	r.Use(securityHeaders)
 	r.Use(bodySizeLimit)
+	r.Use(sameOriginCheck)
 
 	// API 路由
 	api := r.PathPrefix("/api").Subrouter()
@@ -467,7 +492,9 @@ func main() {
 
 	// 静态资源
 	r.PathPrefix("/public/").Handler(http.HandlerFunc(serveEmbedded))
-	r.PathPrefix("/admin/").Handler(checkSetupMiddleware(http.HandlerFunc(serveEmbedded)))
+	// /admin/ 下的内嵌页面（如 /admin/posts.html）同样要求管理员登录，
+	// 防止未登录者直接下载后台前端源码（泄露全部接口与参数结构）
+	r.PathPrefix("/admin/").Handler(checkSetupMiddleware(requireAuth(http.HandlerFunc(serveEmbedded))))
 
 	addr := ":" + *port
 	fmt.Printf("🚀 博客服务器启动成功！\n")
@@ -808,13 +835,13 @@ func uploadAvatar(w http.ResponseWriter, r *http.Request) {
 
 	dst, err := os.Create(path)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 	defer dst.Close()
 
 	if _, err := io.Copy(dst, file); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -838,7 +865,7 @@ func getComments(w http.ResponseWriter, r *http.Request) {
 
 	cstore, err := readComments()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -922,7 +949,7 @@ func createComment(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1014,7 +1041,7 @@ func createComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1082,7 +1109,7 @@ func deleteComment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1094,7 +1121,7 @@ func deleteComment(w http.ResponseWriter, r *http.Request) {
 func getMessages(w http.ResponseWriter, r *http.Request) {
 	mstore, err := readMessages()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1141,7 +1168,7 @@ func createMessage(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1196,7 +1223,7 @@ func createMessage(w http.ResponseWriter, r *http.Request) {
 		mstore.Messages = append(mstore.Messages, msg)
 		return nil
 	}); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1250,7 +1277,7 @@ func deleteMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1287,7 +1314,7 @@ func servePage(path string) http.HandlerFunc {
 func getPosts(w http.ResponseWriter, r *http.Request) {
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1340,7 +1367,7 @@ func getPost(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1353,7 +1380,7 @@ func getPost(w http.ResponseWriter, r *http.Request) {
 	// 读取文章内容
 	content, err := os.ReadFile(filepath.Join(postsDir, post.ID+".md"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1388,7 +1415,7 @@ func login(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1396,13 +1423,13 @@ func login(w http.ResponseWriter, r *http.Request) {
 	if metadata.Admin == nil {
 		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http500(w, err)
 			return
 		}
 
 		metadata.Admin = &AdminConfig{PasswordHash: string(hash)}
 		if err := saveMetadata(metadata); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http500(w, err)
 			return
 		}
 
@@ -1462,7 +1489,7 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1486,13 +1513,13 @@ func createPost(w http.ResponseWriter, r *http.Request) {
 
 	// 保存文章内容
 	if err := os.WriteFile(filepath.Join(postsDir, post.ID+".md"), []byte(req.Content), 0644); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
 	metadata.Posts = append(metadata.Posts, post)
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1512,7 +1539,7 @@ func updatePost(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1542,12 +1569,12 @@ func updatePost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := os.WriteFile(filepath.Join(postsDir, id+".md"), []byte(req.Content), 0644); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1561,7 +1588,7 @@ func deletePost(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1576,7 +1603,7 @@ func deletePost(w http.ResponseWriter, r *http.Request) {
 	os.Remove(filepath.Join(postsDir, id+".md"))
 
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1623,13 +1650,13 @@ func uploadFile(w http.ResponseWriter, r *http.Request) {
 
 	dst, err := os.Create(filepath)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 	defer dst.Close()
 
 	if _, err := io.Copy(dst, file); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1730,26 +1757,26 @@ func uploadBackground(w http.ResponseWriter, r *http.Request) {
 
 	dst, err := os.Create(filepath)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 	defer dst.Close()
 
 	if _, err := io.Copy(dst, file); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
 	// 更新元数据
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
 	metadata.CustomBackground = "/uploads/" + filename
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1762,13 +1789,13 @@ func uploadBackground(w http.ResponseWriter, r *http.Request) {
 func resetBackground(w http.ResponseWriter, r *http.Request) {
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
 	metadata.CustomBackground = ""
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1833,7 +1860,7 @@ func resetSite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := saveMetadata(defaultMetadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1871,7 +1898,7 @@ func changePassword(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1886,7 +1913,7 @@ func changePassword(w http.ResponseWriter, r *http.Request) {
 		if emailsEqual(metadata.Users[i].Email, req.Email) {
 			hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				http500(w, err)
 				return
 			}
 			metadata.Users[i].PasswordHash = string(hashedPassword)
@@ -1903,7 +1930,7 @@ func changePassword(w http.ResponseWriter, r *http.Request) {
 	_ = deleteVerificationCode(req.Email)
 
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1955,7 +1982,7 @@ func changeEmail(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -1984,7 +2011,7 @@ func changeEmail(w http.ResponseWriter, r *http.Request) {
 	_ = deleteVerificationCode(req.NewEmail)
 
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2034,7 +2061,7 @@ func resetPassword(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2049,7 +2076,7 @@ func resetPassword(w http.ResponseWriter, r *http.Request) {
 		if emailsEqual(metadata.Users[i].Email, req.Email) {
 			hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
+				http500(w, err)
 				return
 			}
 			metadata.Users[i].PasswordHash = string(hashedPassword)
@@ -2066,7 +2093,7 @@ func resetPassword(w http.ResponseWriter, r *http.Request) {
 	_ = deleteVerificationCode(req.Email)
 
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2119,7 +2146,7 @@ type publicSettings struct {
 func getSettings(w http.ResponseWriter, r *http.Request) {
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2170,7 +2197,7 @@ func updateSettings(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2217,7 +2244,7 @@ func updateSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2231,7 +2258,7 @@ func checkSetup(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		metadata, err := loadMetadata()
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http500(w, err)
 			return
 		}
 
@@ -2249,7 +2276,7 @@ func checkSetupMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		metadata, err := loadMetadata()
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http500(w, err)
 			return
 		}
 
@@ -2267,7 +2294,7 @@ func blockSetupIfCompleted(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		metadata, err := loadMetadata()
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http500(w, err)
 			return
 		}
 
@@ -2296,7 +2323,7 @@ func trackVisitor(next http.HandlerFunc) http.HandlerFunc {
 func checkSetupStatus(w http.ResponseWriter, r *http.Request) {
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2348,7 +2375,7 @@ type SetupRequest struct {
 func setupSite(w http.ResponseWriter, r *http.Request) {
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2385,7 +2412,7 @@ func setupSite(w http.ResponseWriter, r *http.Request) {
 	// 加密密码
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2458,7 +2485,7 @@ func setupSite(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2504,7 +2531,7 @@ type FileInfo struct {
 func listFiles(w http.ResponseWriter, r *http.Request) {
 	files, err := os.ReadDir(uploadsDir)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2539,7 +2566,7 @@ func deleteFile(w http.ResponseWriter, r *http.Request) {
 
 	filePath := filepath.Join(uploadsDir, filename)
 	if err := os.Remove(filePath); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2551,14 +2578,14 @@ func deleteFile(w http.ResponseWriter, r *http.Request) {
 
 func exportDataAPI(w http.ResponseWriter, r *http.Request) {
 	if err := exportData(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
 	// 读取生成的备份文件
 	data, err := os.ReadFile("backup.tar.gz")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2584,13 +2611,13 @@ func importDataAPI(w http.ResponseWriter, r *http.Request) {
 	tempFile := "temp-import.tar.gz"
 	dst, err := os.Create(tempFile)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 	defer dst.Close()
 
 	if _, err := io.Copy(dst, file); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 	dst.Close()
@@ -2598,7 +2625,7 @@ func importDataAPI(w http.ResponseWriter, r *http.Request) {
 	// 导入数据
 	if err := importData(tempFile); err != nil {
 		os.Remove(tempFile)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2636,7 +2663,7 @@ func userRegister(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2660,7 +2687,7 @@ func userRegister(w http.ResponseWriter, r *http.Request) {
 	// 创建用户
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2681,7 +2708,7 @@ func userRegister(w http.ResponseWriter, r *http.Request) {
 	_ = deleteVerificationCode(req.Email)
 
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2725,7 +2752,7 @@ func userLogin(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2786,7 +2813,7 @@ func getUserInfo(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2831,7 +2858,7 @@ func updateUserProfile(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2878,7 +2905,7 @@ func updateUserProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2892,7 +2919,7 @@ func updateUserProfile(w http.ResponseWriter, r *http.Request) {
 func getAllUsers(w http.ResponseWriter, r *http.Request) {
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2914,7 +2941,7 @@ func updateUserRole(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2939,7 +2966,7 @@ func updateUserRole(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2956,7 +2983,7 @@ func deleteUser(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -2983,7 +3010,7 @@ func deleteUser(w http.ResponseWriter, r *http.Request) {
 	metadata.Users = append(metadata.Users[:userIndex], metadata.Users[userIndex+1:]...)
 
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -3023,7 +3050,7 @@ func sendVerificationCode(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -3041,7 +3068,7 @@ func sendVerificationCode(w http.ResponseWriter, r *http.Request) {
 
 	// 验证码单独存，避免首页访客统计等写 metadata 时把未使用的码覆盖掉
 	if err := saveVerificationCode(req.Email, code, req.Type); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -3285,7 +3312,7 @@ func sendEmail(smtpConfig *SMTPConfig, to, subject, body string) error {
 func getSMTPConfig(w http.ResponseWriter, r *http.Request) {
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -3323,7 +3350,7 @@ func updateSMTPConfig(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -3335,7 +3362,7 @@ func updateSMTPConfig(w http.ResponseWriter, r *http.Request) {
 	metadata.SMTP = &config
 
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -3380,7 +3407,7 @@ func testSMTP(w http.ResponseWriter, r *http.Request) {
 func getAbout(w http.ResponseWriter, r *http.Request) {
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -3442,7 +3469,7 @@ func updateAbout(w http.ResponseWriter, r *http.Request) {
 
 	metadata, err := loadMetadata()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
@@ -3450,7 +3477,7 @@ func updateAbout(w http.ResponseWriter, r *http.Request) {
 	metadata.AboutContent = req.Content
 
 	if err := saveMetadata(metadata); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http500(w, err)
 		return
 	}
 
