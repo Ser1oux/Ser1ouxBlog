@@ -100,7 +100,7 @@ func saveCodesUnlocked(store *verificationCodeStore) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(codesFilePath(), data, 0644)
+	return writeFileAtomic(codesFilePath(), data, 0600)
 }
 
 func pruneExpiredCodes(store *verificationCodeStore, now time.Time) {

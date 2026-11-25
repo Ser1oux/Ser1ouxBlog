@@ -42,12 +42,32 @@ func TestIsPrivateOrLocalIP(t *testing.T) {
 }
 
 func TestGetClientIPPrefersPublic(t *testing.T) {
+	// 该用例模拟“前面有可信反向代理”的部署，需显式开启 TRUST_PROXY 对应的开关。
+	old := trustProxy
+	trustProxy = true
+	defer func() { trustProxy = old }()
+
 	r, _ := http.NewRequest(http.MethodGet, "/", nil)
 	r.RemoteAddr = "127.0.0.1:12345"
 	r.Header.Set("X-Forwarded-For", "36.112.8.1, 127.0.0.1")
 	r.Header.Set("X-Real-IP", "10.0.0.2")
 	if got := getClientIP(r); got != "36.112.8.1" {
 		t.Fatalf("got %q want public client IP", got)
+	}
+}
+
+func TestGetClientIPIgnoresForwardedHeadersByDefault(t *testing.T) {
+	old := trustProxy
+	trustProxy = false
+	defer func() { trustProxy = old }()
+
+	r, _ := http.NewRequest(http.MethodGet, "/", nil)
+	r.RemoteAddr = "192.0.2.10:12345"
+	r.Header.Set("X-Forwarded-For", "36.112.8.1")
+	r.Header.Set("X-Real-IP", "36.112.8.2")
+	// 默认不应采信客户端可伪造的头，否则每次伪造一个值就能换一个限流桶。
+	if got := getClientIP(r); got != "192.0.2.10" {
+		t.Fatalf("got %q want socket address", got)
 	}
 }
 

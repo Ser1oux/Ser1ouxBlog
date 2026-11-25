@@ -5,7 +5,8 @@
 - ✅ 一个可执行文件搞定一切，备份只需要打包一个 `data/` 文件夹
 - ✅ 首次启动自带初始化向导，两步就能上线，默认内容完全中性
 - ✅ Markdown 写作、评论楼中楼、留言板、站内通知、访问统计、暗色模式、RSS
-- ✅ 内置安全加固：全接口限流、XSS 双层防护、会话与 Cookie 加固、上传白名单
+- ✅ 安全默认值：初始化一次性口令、关键接口限流、Markdown 强制 HTML 清洗（DOMPurify）、
+  CSP 与安全响应头、上传白名单 + 非图片强制下载、会话版本吊销、文件权限 0600
 
 基于 GL-Blog 二次开发。下面是从本地体验到生产部署的完整说明。
 
@@ -30,9 +31,22 @@
 
 | 场景 | 要求 |
 |------|------|
-| 本地体验 / 二次开发 | [Go](https://go.dev/dl/) 1.21+ |
+| 本地体验 / 二次开发 | [Go](https://go.dev/dl/) 1.22+（Dockerfile 使用 1.27 构建） |
 | Docker 部署 | Docker 和 Docker Compose（无需装 Go） |
 | 服务器二进制部署 | 任意 Linux（amd64 / arm64），无需任何运行时依赖 |
+
+### 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `SESSION_SECRET` | 启动时随机生成 | 会话签名密钥。不设置则每次重启所有登录失效，生产必须固定 |
+| `COOKIE_SECURE` | `true` | 设为 `false` 才允许纯 HTTP 登录，仅限本地调试 |
+| `TRUST_PROXY` | 关闭 | 设为 `1` 才采信 `X-Real-IP` / `X-Forwarded-For`。**放在 Nginx 后面时必须开启**，否则所有请求都会被当成来自 127.0.0.1 |
+| `SITE_URL` | 空 | 邮件里的绝对链接前缀，例如 `https://blog.example.com`；不设则按请求 Host 推断 |
+| `PORT` | `3000` | 监听端口（也可用 `-port` 参数） |
+
+> 反向代理信任是安全边界：`TRUST_PROXY` 关闭时，伪造 `X-Forwarded-For` 无法绕过限流；
+> 开启后请确保只有可信代理能直连应用端口。
 
 ## 2. 本地体验（3 分钟）
 
@@ -48,12 +62,22 @@ go run .
 
 ## 3. 初始化向导
 
-首次访问任何页面都会跳转到 `/setup`，两步完成：
+首次启动时，服务端日志会打印一行一次性初始化口令：
 
-1. **设置站点名称** —— 显示在浏览器标题和页头，之后可随时在后台修改
-2. **创建管理员账号** —— 用户名 / 邮箱 / 密码，用于登录管理后台
+```
+🔐 站点尚未初始化。请访问 /setup 并填入一次性口令: <64 位随机串>
+```
+
+首次访问任何页面都会跳转到 `/setup`，三步完成：
+
+1. **填写初始化口令** —— 只有能看到服务端日志的人才能完成初始化，避免公网端口被抢先注册管理员
+2. **设置站点名称** —— 显示在浏览器标题和页头，之后可随时在后台修改
+3. **创建管理员账号** —— 用户名 / 邮箱 / 密码（至少 8 位），用于登录管理后台
 
 完成后自动登录并进入站点。系统会生成一篇《欢迎使用 Ser1oux-Blog》示例文章（可直接删除），数据全部保存在 `data/` 目录。
+
+> 口令只在本次启动有效；「重置站点」会清空数据并重新打印一个新口令。
+> 如果日志找不到口令，重启一次服务即可。
 
 ## 4. 部署到服务器
 
@@ -64,19 +88,24 @@ go run .
 ```bash
 git clone https://github.com/Ser1oux/Ser1ouxBlog.git
 cd Ser1ouxBlog
+mkdir -p data && sudo chown -R 10001:10001 data
 docker compose up -d --build
 ```
 
-完成后访问 `http://服务器IP:3000` 进入初始化向导。
+容器以非 root 用户（uid 10001）运行，`data/` 是 bind mount，必须在宿主机先把属主改成 10001，
+否则启动后会因无写入权限反复跳到 `/setup`。
 
-这条命令做了什么：构建镜像并启动容器、把 `3000` 端口映射到宿主机、数据持久化在 `./data`（容器重建不丢数据）、崩溃自动重启（`unless-stopped`）。
+compose 默认只把端口绑定到 `127.0.0.1:3000`，请在前面放 Nginx/Caddy 并启用 HTTPS（见第 5 节）。
+需要局域网直连时把映射改成 `"3000:3000"`。
 
-**生产建议**：在 `docker-compose.yml` 的 `environment` 中加一行固定会话密钥（否则每次重建容器所有登录态失效）：
+**生产建议**：在 `docker-compose.yml` 的 `environment` 中至少固定会话密钥：
 
 ```yaml
     environment:
       - TZ=Asia/Shanghai
-      - SESSION_SECRET=换成你自己的64位随机字符串
+      - SESSION_SECRET=换成你自己的64位随机字符串   # openssl rand -hex 32
+      - TRUST_PROXY=1                              # 前面有可信 Nginx/Caddy 时
+      - SITE_URL=https://blog.example.com          # 邮件里的绝对链接
 ```
 
 ### 方式 B：二进制 + systemd + Nginx
@@ -112,7 +141,13 @@ echo "SESSION_SECRET=$(openssl rand -hex 32)" > secret.env
 chmod 600 secret.env
 ```
 
-**第 4 步：配置 systemd 守护**（崩溃自动拉起 + 开机自启）
+**第 4 步：创建运行用户并配置 systemd**（不要用 root 跑）
+
+```bash
+useradd --system --uid 10001 --home /www/wwwroot/gl-blog --shell /usr/sbin/nologin gl-blog
+mkdir -p /www/wwwroot/gl-blog/data /www/wwwroot/gl-blog/logs
+chown -R gl-blog:gl-blog /www/wwwroot/gl-blog
+```
 
 ```ini
 # /etc/systemd/system/gl-blog.service
@@ -122,6 +157,8 @@ After=network.target
 
 [Service]
 Type=simple
+User=gl-blog
+Group=gl-blog
 WorkingDirectory=/www/wwwroot/gl-blog
 ExecStart=/bin/bash /www/wwwroot/gl-blog/start.sh
 Restart=always
@@ -135,6 +172,7 @@ WantedBy=multi-user.target
 systemctl daemon-reload
 systemctl enable --now gl-blog
 systemctl status gl-blog     # 确认运行中
+journalctl -u gl-blog -n 50  # 首次启动会在这里打印初始化口令
 ```
 
 **第 5 步：Nginx 反向代理**（在站点的 server 块中添加）
@@ -143,8 +181,8 @@ systemctl status gl-blog     # 确认运行中
 location / {
     proxy_pass http://127.0.0.1:3000;
     proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;        # 限流和 IP 归属地依赖真实 IP
-    proxy_set_header X-Forwarded-Proto $scheme;     # HTTPS 识别依赖
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 }
 ```
@@ -152,6 +190,11 @@ location / {
 ```bash
 nginx -t && nginx -s reload
 ```
+
+> 程序默认**不信任**这些转发头（防止伪造 IP 绕过限流）。放在 Nginx 后面时，
+> 必须在启动环境里设置 `TRUST_PROXY=1`，否则限流与 IP 归属地都会把所有人当成 127.0.0.1。
+> 在 `secret.env` 里加一行 `export TRUST_PROXY=1` 即可（`start.sh` 会自动加载）。
+> 同时确保 3000 端口只监听回环地址，外部无法绕过 Nginx 直连。
 
 访问你的域名，进入初始化向导即可。
 
@@ -219,7 +262,12 @@ Cookie 默认带 Secure 标记，纯 HTTP 环境请临时设置 `COOKIE_SECURE=f
 登录页点击「找回密码」，用管理员邮箱接收验证码重置（需要先配置过 SMTP）。未配置过 SMTP 时无法自助找回，需停止服务后编辑 `data/metadata.json` 手动处理，或在数据可舍弃时清空 `data/` 重新初始化。
 
 **Q：评论的 IP 归属地显示不准 / 限流把所有人都限了？**
-Nginx 少传了真实 IP 头，确认第 4 节方式 B 第 5 步中的 `X-Real-IP` 和 `X-Forwarded-For` 两行都在。
+放在反向代理后面却没开 `TRUST_PROXY=1`。确认第 4 节方式 B 第 5 步的转发头都在，并且启动环境里有 `TRUST_PROXY=1`；
+直接暴露在公网（无代理）时不要开，保持默认即可。
+
+**Q：访问 /setup 提示“初始化口令无效”？**
+口令在服务端日志里（systemd：`journalctl -u gl-blog`；Docker：`docker compose logs gl-blog`），
+形如 `🔐 站点尚未初始化…一次性初始化口令: xxxx`。口令只在当前进程有效，重启后会重新生成。
 
 **Q：Docker 容器健康检查失败？**
 `docker compose logs gl-blog` 看日志；常见原因是 `data/` 目录权限不对。
@@ -236,10 +284,14 @@ Nginx 少传了真实 IP 头，确认第 4 节方式 B 第 5 步中的 `X-Real-I
 
 ```bash
 go run .          # 启动开发服务
-go test ./...     # 运行测试
+go vet ./...      # 静态检查
+go test ./...     # 运行测试（含鉴权边界、上传直出、归档路径等）
 ```
 
-单二进制 + 文件存储，无数据库、无外部服务依赖，直接读源码即可上手。
+前端第三方库已经固定在 `public/vendor/`（marked / DOMPurify / EasyMDE / highlight.js / GSAP），
+页面不再从公网 CDN 加载脚本；升级时替换该目录下的文件即可，不需要改 HTML。
+
+单二进制 + 文件存储，无数据库；除了 Go 标准库与 gorilla/mux、gorilla/sessions、gomarkdown、x/crypto，没有其它运行时依赖。
 
 ## 12. 许可
 

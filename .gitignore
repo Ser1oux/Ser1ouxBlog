@@ -20,6 +20,14 @@ gl-blog - *
 # Data directory
 data/
 
+# Secrets（SESSION_SECRET / SMTP 密码等绝不能进版本库）
+secret.env
+.env
+*.pem
+*.key
+*.crt
+*.p12
+
 # IDE
 .vscode/
 .idea/

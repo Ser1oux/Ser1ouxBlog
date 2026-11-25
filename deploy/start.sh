@@ -1,6 +1,8 @@
 #!/bin/bash
 # Ser1oux-Blog 启动脚本（给 Supervisor 用，失败会写日志）
 set -e
+# 新建的数据/日志文件默认不对其他用户开放
+umask 027
 cd /www/wwwroot/gl-blog
 mkdir -p data logs
 export TZ=Asia/Shanghai

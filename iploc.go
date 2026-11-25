@@ -39,7 +39,16 @@ var (
 )
 
 // 获取客户端真实 IP：优先公网地址，跳过反代/内网 hop。
+// 默认只信任 TCP 连接来源；只有显式设置 TRUST_PROXY=1 时才采信转发头，
+// 否则攻击者每次伪造一个 X-Forwarded-For 就能换一个限流桶。
 func getClientIP(r *http.Request) string {
+	if !trustProxy {
+		if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+			return normalizeIP(host)
+		}
+		return normalizeIP(r.RemoteAddr)
+	}
+
 	var candidates []string
 	// X-Real-IP 由自建 nginx 覆写为真实连接地址，优先级最高；
 	// CF-Connecting-IP / True-Client-IP 直连时可被客户端伪造，仅作后备。
@@ -592,18 +601,41 @@ func backfillStoredLocations() {
 	}
 }
 
+// backfillComments 分三段执行：加锁快照 → 锁外做外网查询 → 加锁写回。
+// 旧实现把 3 秒级的 IP 查询放在 withComments 临界区里，期间所有评论读写都被阻塞。
 func backfillComments() int {
+	snapshot, err := readComments()
+	if err != nil {
+		log.Println("读取评论失败:", err)
+		return 0
+	}
+	ipByID := map[string]string{}
+	for i := range snapshot.Comments {
+		if !needsBetterLocation(snapshot.Comments[i].Location) {
+			continue
+		}
+		ip := normalizeIP(snapshot.Comments[i].IP)
+		if ip == "" || isPrivateOrLocalIP(ip) {
+			continue
+		}
+		ipByID[snapshot.Comments[i].ID] = ip
+	}
+	if len(ipByID) == 0 {
+		return 0
+	}
+
+	locByID := make(map[string]string, len(ipByID))
+	for id, ip := range ipByID {
+		locByID[id] = resolveIPLocation(ip)
+	}
+
 	changed := 0
 	if err := withComments(func(store *CommentsData) error {
 		for i := range store.Comments {
-			if !needsBetterLocation(store.Comments[i].Location) {
+			loc, ok := locByID[store.Comments[i].ID]
+			if !ok {
 				continue
 			}
-			ip := normalizeIP(store.Comments[i].IP)
-			if ip == "" || isPrivateOrLocalIP(ip) {
-				continue
-			}
-			loc := resolveIPLocation(ip)
 			if locationScore(loc) <= locationScore(store.Comments[i].Location) {
 				continue
 			}
@@ -621,18 +653,40 @@ func backfillComments() int {
 	return changed
 }
 
+// backfillMessages 同 backfillComments：外网查询在锁外完成。
 func backfillMessages() int {
+	snapshot, err := readMessages()
+	if err != nil {
+		log.Println("读取留言失败:", err)
+		return 0
+	}
+	ipByID := map[string]string{}
+	for i := range snapshot.Messages {
+		if !needsBetterLocation(snapshot.Messages[i].Location) {
+			continue
+		}
+		ip := normalizeIP(snapshot.Messages[i].IP)
+		if ip == "" || isPrivateOrLocalIP(ip) {
+			continue
+		}
+		ipByID[snapshot.Messages[i].ID] = ip
+	}
+	if len(ipByID) == 0 {
+		return 0
+	}
+
+	locByID := make(map[string]string, len(ipByID))
+	for id, ip := range ipByID {
+		locByID[id] = resolveIPLocation(ip)
+	}
+
 	changed := 0
 	if err := withMessages(func(store *MessagesData) error {
 		for i := range store.Messages {
-			if !needsBetterLocation(store.Messages[i].Location) {
+			loc, ok := locByID[store.Messages[i].ID]
+			if !ok {
 				continue
 			}
-			ip := normalizeIP(store.Messages[i].IP)
-			if ip == "" || isPrivateOrLocalIP(ip) {
-				continue
-			}
-			loc := resolveIPLocation(ip)
 			if locationScore(loc) <= locationScore(store.Messages[i].Location) {
 				continue
 			}

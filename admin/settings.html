@@ -7,9 +7,8 @@
   <link rel="apple-touch-icon" href="/BG/favicon.png?v=cute1">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>设置 - Ser1oux-Blog</title>
-  <!-- 使用备用 CDN 源 -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css" 
-        onerror="this.onerror=null; this.href='https://unpkg.com/easymde/dist/easymde.min.css';">
+  <!-- 本仓库内置固定版本，不再依赖第三方 CDN -->
+  <link rel="stylesheet" href="/public/vendor/easymde.min.css">
   <style>
     * {
       margin: 0;
@@ -1460,9 +1459,8 @@
     </div>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js" 
-          onerror="this.onerror=null; this.src='https://unpkg.com/easymde/dist/easymde.min.js';"></script>
+  <script src="/public/vendor/gsap.min.js"></script>
+  <script src="/public/vendor/easymde.min.js"></script>
   <script>
     // 导航栏交互
     const hamburger = document.getElementById('hamburger');

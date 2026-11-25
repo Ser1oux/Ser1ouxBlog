@@ -7,7 +7,7 @@
   <link rel="apple-touch-icon" href="/BG/favicon.png?v=cute1">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>文章管理 - Ser1oux-Blog</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css">
+  <link rel="stylesheet" href="/public/vendor/easymde.min.css">
   <style>
     * {
       margin: 0;
@@ -549,7 +549,7 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>
+  <script src="/public/vendor/easymde.min.js"></script>
   <script>
     let easyMDE;
     let currentEditId = null;
@@ -845,10 +845,15 @@
       });
     }
 
+    // 同时转义引号：该函数的结果也用于属性上下文（value="${tag}"），
+    // 只转 &<> 无法阻止 `" onmouseover=...` 闭合属性。
     function escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
+      return String(text == null ? '' : text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
     }
 
     // 加载设置
@@ -885,8 +890,8 @@
               const div = document.createElement('div');
               div.className = 'tag-checkbox-item';
               div.innerHTML = `
-                <input type="checkbox" id="tag-${index}" value="${tag}">
-                <label for="tag-${index}">${tag}</label>
+                <input type="checkbox" id="tag-${index}" value="${escapeHtml(tag)}">
+                <label for="tag-${index}">${escapeHtml(tag)}</label>
               `;
               tagsContainer.appendChild(div);
             });

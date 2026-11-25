@@ -420,6 +420,7 @@
   <script>
     let currentStep = 1;
     const totalSteps = 4;
+    let setupToken = '';
     let siteName = '';
     let username = '';
     let email = '';
@@ -428,10 +429,12 @@
 
     const steps = [
       {
-        title: '欢迎使用 Ser1oux-Blog',
-        icon: '🎉',
-        content: '感谢您选择 Ser1oux-Blog！让我们花几分钟时间完成初始设置，开启您的博客之旅。',
-        fields: []
+        title: '验证初始化口令',
+        icon: '🔐',
+        content: '为防止公网端口被他人抢先注册管理员，初始化需要服务端启动日志里的一次性口令。',
+        fields: [
+          { id: 'setupToken', label: '初始化口令', type: 'password', placeholder: '查看服务端日志中的「一次性初始化口令」', value: () => setupToken, onChange: (v) => setupToken = v }
+        ]
       },
       {
         title: '设置站点名称',
@@ -448,7 +451,7 @@
         fields: [
           { id: 'username', label: '管理员用户名', type: 'text', placeholder: '请输入用户名', value: () => username, onChange: (v) => username = v },
           { id: 'email', label: '管理员邮箱', type: 'email', placeholder: '请输入邮箱地址', value: () => email, onChange: (v) => email = v },
-          { id: 'password', label: '管理员密码', type: 'password', placeholder: '请输入密码（至少6位）', value: () => password, onChange: (v) => password = v },
+          { id: 'password', label: '管理员密码', type: 'password', placeholder: '请输入密码（至少8位）', value: () => password, onChange: (v) => password = v },
           { id: 'confirmPassword', label: '确认密码', type: 'password', placeholder: '请再次输入密码', value: () => confirmPassword, onChange: (v) => confirmPassword = v }
         ]
       },
@@ -574,6 +577,12 @@
     }
 
     function validateStep() {
+      if (currentStep === 1) {
+        if (!setupToken.trim()) {
+          showError('setupToken', '请输入初始化口令');
+          return false;
+        }
+      }
       if (currentStep === 2) {
         if (!siteName.trim()) {
           showError('siteName', '请输入站点名称');
@@ -604,8 +613,8 @@
           showError('password', '请输入密码');
           return false;
         }
-        if (password.length < 6) {
-          showError('password', '密码至少6个字符');
+        if (password.length < 8) {
+          showError('password', '密码至少8个字符');
           return false;
         }
         if (password !== confirmPassword) {
@@ -648,6 +657,7 @@
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
+            setupToken,
             siteName,
             username,
             email,
@@ -659,7 +669,8 @@
           // 设置完成，跳转到首页
           window.location.href = '/';
         } else {
-          alert('设置失败，请重试');
+          const msg = await response.text();
+          alert('设置失败：' + (msg || '请重试'));
         }
       } catch (error) {
         console.error('设置失败:', error);

@@ -8,7 +8,7 @@
   <link rel="apple-touch-icon" href="/BG/favicon.png?v=cute1">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title id="pageTitle">文章详情 - Ser1oux-Blog</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/github-dark.min.css">
+  <link rel="stylesheet" href="/public/vendor/github-dark.min.css">
   <style>
     * {
       margin: 0;
@@ -889,8 +889,9 @@
     <div id="commentsSection" class="comments-section" style="display:none;"></div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/marked@11.1.1/marked.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/highlight.min.js"></script>
+  <script src="/public/vendor/marked.min.js"></script>
+  <script src="/public/vendor/purify.min.js"></script>
+  <script src="/public/vendor/highlight.min.js"></script>
 
   <script>
     if (typeof siteDisplayName !== 'function') {
@@ -1001,6 +1002,9 @@
         
         // 修复图片路径：将相对路径转换为绝对路径
         htmlContent = htmlContent.replace(/src="(?!http|\/)(.*?)"/g, 'src="/uploads/$1"');
+        // marked 会原样透传 HTML，必须经过 DOMPurify 清洗后再插入页面，
+        // 否则正文里的 <img onerror> / <svg onload> 会在每个访客浏览器执行。
+        htmlContent = DOMPurify.sanitize(htmlContent, { USE_PROFILES: { html: true } });
         
         container.innerHTML = `
           <div class="post-header">

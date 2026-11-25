@@ -1551,7 +1551,7 @@
   <!-- 页面底部版权信息 -->
 
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+  <script src="/public/vendor/gsap.min.js"></script>
   <script>
     if (typeof siteDisplayName !== 'function') {
       window.siteDisplayName = function(s) {
@@ -2036,12 +2036,19 @@
         categoryList.innerHTML = '';
         if (settings.categories && settings.categories.length > 0) {
           settings.categories.forEach(category => {
+            // 分类名来自后台，可能包含引号或 HTML；文本与属性两个上下文都要转义。
+            const safeCat = String(category)
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
             const div = document.createElement('a');
             div.className = 'category-item';
             div.href = '#';
             div.innerHTML = `
-              <span>${category}</span>
-              <span class="category-count" data-category="${category}">0</span>
+              <span>${safeCat}</span>
+              <span class="category-count" data-category="${safeCat}">0</span>
             `;
             categoryList.appendChild(div);
           });

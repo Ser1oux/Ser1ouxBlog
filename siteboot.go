@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"html"
+	"log"
+	"mime"
 	"net/http"
+	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 )
 
 type siteBootstrap struct {
@@ -73,6 +75,11 @@ func applySiteBootstrapWith(raw []byte, boot siteBootstrap) []byte {
 	for _, pair := range repls {
 		out = bytes.ReplaceAll(out, []byte(pair[0]), []byte(pair[1]))
 	}
+	// 规则是按字面量匹配的：模板一改就可能静默失效。这里显式检查占位符，
+	// 让品牌名替换失败能在日志里被发现，而不是悄悄保持默认值。
+	if bytes.Contains(out, []byte(`<span id="siteName">Ser1oux-Blog`)) {
+		log.Printf("[template] siteName 占位符未被替换，siteboot 规则与模板可能已失配")
+	}
 
 	if nick := strings.TrimSpace(boot.Nickname); nick != "" {
 		out = bytes.ReplaceAll(out,
@@ -125,5 +132,11 @@ func serveEmbedded(w http.ResponseWriter, r *http.Request) {
 		writeHTMLPage(w, data)
 		return
 	}
-	http.ServeContent(w, r, path, time.Time{}, bytes.NewReader(data))
+	// 不用 ServeContent：它会按原始长度写 Content-Length，
+	// 而外层 gzip 中间件会改变响应长度。直接 Write 交给 net/http 分块发送。
+	if ct := mime.TypeByExtension(filepath.Ext(path)); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(data)
 }

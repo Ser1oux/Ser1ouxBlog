@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"embed"
@@ -18,12 +19,14 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -36,7 +39,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-//go:embed public/*.html public/*.css admin/*.html
+//go:embed public/*.html admin/*.html public/vendor/*
 var staticFiles embed.FS
 
 var (
@@ -129,12 +132,33 @@ type slidingWindowLimiter struct {
 
 var apiRateLimiter = &slidingWindowLimiter{entries: make(map[string][]time.Time)}
 
+// maxLimiterEntries 限制限流表规模。达到上限时先清理过期键，
+// 仍然超限则拒绝新键（fail closed），避免内存被伪造键无限撑大。
+const maxLimiterEntries = 10000
+
 func (l *slidingWindowLimiter) allow(key string, max int, window time.Duration) bool {
+	if len(key) > 256 {
+		key = key[:256]
+	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
+
+	if len(l.entries) >= maxLimiterEntries {
+		if _, exists := l.entries[key]; !exists {
+			for k, v := range l.entries {
+				if len(v) == 0 || now.Sub(v[len(v)-1]) >= window {
+					delete(l.entries, k)
+				}
+			}
+			if len(l.entries) >= maxLimiterEntries {
+				return false
+			}
+		}
+	}
+
 	list := l.entries[key]
-	kept := list[:0]
+	kept := make([]time.Time, 0, len(list)+1)
 	for _, t := range list {
 		if now.Sub(t) < window {
 			kept = append(kept, t)
@@ -145,13 +169,6 @@ func (l *slidingWindowLimiter) allow(key string, max int, window time.Duration) 
 		return false
 	}
 	l.entries[key] = append(kept, now)
-	if len(l.entries) > 10000 {
-		for k, v := range l.entries {
-			if len(v) == 0 {
-				delete(l.entries, k)
-			}
-		}
-	}
 	return true
 }
 
@@ -196,7 +213,18 @@ func securityHeaders(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		h.Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
+		// 页面仍使用内联脚本与内联事件，script-src 必须保留 'unsafe-inline'；
+		// 但已禁止任意外部源、object 与跨站表单提交，并锁定 frame-ancestors。
+		h.Set("Content-Security-Policy",
+			"default-src 'self'; "+
+				"script-src 'self' 'unsafe-inline'; "+
+				"style-src 'self' 'unsafe-inline'; "+
+				"img-src 'self' data: blob: https:; "+
+				"font-src 'self' data:; "+
+				"connect-src 'self'; "+
+				"object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
+		if r.TLS != nil || (trustProxy && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")) {
 			h.Set("Strict-Transport-Security", "max-age=31536000")
 		}
 		next.ServeHTTP(w, r)
@@ -279,6 +307,8 @@ type VerificationCode struct {
 type AdminConfig struct {
 	Username     string `json:"username"`
 	PasswordHash string `json:"passwordHash"`
+	// SessionVersion 与 User.SessionVersion 同步递增，用于让旧会话失效。
+	SessionVersion int `json:"sessionVersion,omitempty"`
 }
 
 type User struct {
@@ -291,6 +321,9 @@ type User struct {
 	IsAdmin      bool      `json:"isAdmin"`
 	CreatedAt    time.Time `json:"createdAt"`
 	Verified     bool      `json:"verified"`
+	// SessionVersion 每次改密/改角色/改邮箱递增；会话里保存登录时的值，
+	// 中间件对不上即拒绝，实现服务端吊销。
+	SessionVersion int `json:"sessionVersion,omitempty"`
 }
 
 type SMTPConfig struct {
@@ -372,12 +405,16 @@ func main() {
 	// 初始化会话存储（必须在处理任何请求之前）
 	initSessionStore()
 
+	// 站点未完成初始化时生成一次性口令，只有能看到服务端日志的人才能完成 setup。
+	initSetupToken()
+
 	// 处理导出命令
 	if *exportCmd {
-		if err := exportData(); err != nil {
+		path, err := exportData()
+		if err != nil {
 			log.Fatal("导出失败:", err)
 		}
-		fmt.Println("数据导出成功: backup.tar.gz")
+		fmt.Println("数据导出成功: " + path)
 		return
 	}
 
@@ -393,7 +430,10 @@ func main() {
 	// 启动 Web 服务器
 	r := mux.NewRouter()
 
-	// 全局中间件：安全响应头 + 请求体大小上限
+	// 全局中间件：panic 恢复 → 访问日志 → gzip → 安全响应头 → 请求体上限 → 同源校验
+	r.Use(recoverMiddleware)
+	r.Use(requestLogMiddleware)
+	r.Use(gzipMiddleware)
 	r.Use(securityHeaders)
 	r.Use(bodySizeLimit)
 	r.Use(sameOriginCheck)
@@ -436,7 +476,7 @@ func main() {
 	api.HandleFunc("/about", requireAuth(updateAbout)).Methods("POST")
 	api.HandleFunc("/about-page", getAbout).Methods("GET")
 	api.HandleFunc("/about-page", requireAuth(updateAbout)).Methods("POST")
-	api.HandleFunc("/server-status", getServerStatus).Methods("GET")
+	api.HandleFunc("/server-status", requireAuth(getServerStatus)).Methods("GET")
 	api.HandleFunc("/reset-site", requireAuth(resetSite)).Methods("POST")
 	api.HandleFunc("/change-password", requireUserAuth(changePassword)).Methods("POST")
 	api.HandleFunc("/reset-password", resetPassword).Methods("POST")
@@ -455,8 +495,8 @@ func main() {
 	api.HandleFunc("/messages", createMessage).Methods("POST")
 	api.HandleFunc("/messages/{id}", requireUserAuth(deleteMessage)).Methods("DELETE")
 
-	// 静态文件（禁用目录列表）
-	r.PathPrefix("/uploads/").Handler(http.StripPrefix("/uploads/", noDirListing(http.FileServer(http.Dir(uploadsDir)))))
+	// 静态文件（禁止目录列表；非图片强制附件下载，避免上传内容被当作 HTML 执行）
+	r.PathPrefix("/uploads/").HandlerFunc(serveUploads)
 	r.PathPrefix("/BG/").Handler(http.StripPrefix("/BG/", noDirListing(http.FileServer(http.Dir("BG")))))
 
 	// 搜索引擎基础文件
@@ -504,13 +544,45 @@ func main() {
 
 	go backfillStoredLocations()
 
-	log.Fatal(http.ListenAndServe(addr, r))
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           r,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       60 * time.Second,
+		WriteTimeout:      120 * time.Second,
+		IdleTimeout:       120 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+
+	// 优雅关闭：收到 SIGINT/SIGTERM 后停止接收新请求并等待在途请求完成，
+	// 避免容器重启时正好中断 metadata / 正文写盘。
+	shutdownDone := make(chan struct{})
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+		select {
+		case <-sigCh:
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if err := srv.Shutdown(ctx); err != nil {
+				log.Printf("关闭服务器失败: %v", err)
+			}
+		case <-shutdownDone:
+		}
+	}()
+
+	log.Printf("HTTP 服务监听 %s（超时已配置：读头 10s / 读 60s / 写 120s）", addr)
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
+	close(shutdownDone)
 }
 
 func initDirectories() error {
 	dirs := []string{dataDir, postsDir, uploadsDir}
 	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		// 0700：data/ 里有 bcrypt 哈希、SMTP 密码与会话相关文件。
+		if err := os.MkdirAll(dir, 0700); err != nil {
 			return err
 		}
 	}
@@ -543,13 +615,27 @@ func saveMetadataUnlocked(metadata *Metadata) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(metadataFile, data, 0644)
+	// 0600：metadata 里有 bcrypt 哈希与 SMTP 密码，同主机其他用户不应可读。
+	if err := writeFileAtomic(metadataFile, data, 0600); err != nil {
+		return err
+	}
+	setMetadataCache(metadata)
+	return nil
 }
 
 func loadMetadata() (*Metadata, error) {
+	// 命中内存快照时直接返回深拷贝，省掉每个请求的读盘与 JSON 解析。
+	if cached := cachedMetadataCopy(); cached != nil {
+		return cached, nil
+	}
 	metadataMu.Lock()
 	defer metadataMu.Unlock()
-	return loadMetadataUnlocked()
+	m, err := loadMetadataUnlocked()
+	if err != nil {
+		return nil, err
+	}
+	setMetadataCache(m)
+	return cloneMetadata(m), nil
 }
 
 func saveMetadata(metadata *Metadata) error {
@@ -639,7 +725,7 @@ func saveComments(store *CommentsData) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(commentsFile, data, 0644)
+	return writeFileAtomic(commentsFile, data, 0600)
 }
 
 func loadMessages() (*MessagesData, error) {
@@ -668,7 +754,7 @@ func saveMessages(store *MessagesData) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(messagesFile, data, 0644)
+	return writeFileAtomic(messagesFile, data, 0600)
 }
 
 // comments.json / messages.json 的读-改-写必须在同一把锁内完成，
@@ -814,14 +900,38 @@ func serveDefaultAvatar(w http.ResponseWriter, r *http.Request) {
 
 // 登录用户上传自己的头像
 func uploadAvatar(w http.ResponseWriter, r *http.Request) {
-	r.ParseMultipartForm(5 << 20) // 5 MB
+	session, _ := store.Get(r, "session")
+	userID, _ := session.Values["userID"].(string)
+	if userID == "" {
+		http.Error(w, "未授权", http.StatusUnauthorized)
+		return
+	}
+	// 按用户限流，避免任何登录账号无上限刷盘。
+	if !rateLimitAllow(w, "avatar:"+userID, 10, time.Hour) {
+		return
+	}
+	if uploadsDirBytes() > maxUploadsDirBytes {
+		http.Error(w, "存储空间已满，请联系管理员", http.StatusInsufficientStorage)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 3<<20)
+	if err := r.ParseMultipartForm(2 << 20); err != nil {
+		http.Error(w, "上传失败或文件过大", http.StatusBadRequest)
+		return
+	}
 
 	file, handler, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "上传失败", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
+
+	if handler.Size > 2<<20 {
+		http.Error(w, "头像不能超过 2MB", http.StatusRequestEntityTooLarge)
+		return
+	}
 
 	ext := strings.ToLower(filepath.Ext(handler.Filename))
 	allowed := map[string]bool{".jpg": true, ".jpeg": true, ".png": true, ".gif": true, ".webp": true}
@@ -830,23 +940,38 @@ func uploadAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filename := fmt.Sprintf("avatar-%d%s", time.Now().UnixNano(), ext)
-	path := filepath.Join(uploadsDir, filename)
-
-	dst, err := os.Create(path)
-	if err != nil {
-		http500(w, err)
-		return
-	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, file); err != nil {
+	filename := fmt.Sprintf("avatar-%s-%d%s", userID, time.Now().UnixNano(), ext)
+	if err := writeUploadAtomic(filename, file, 2<<20); err != nil {
 		http500(w, err)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	// 写入用户记录并回收旧头像，避免每次换头像都永久占用磁盘。
+	var oldAvatar string
+	userFound := false
+	err = withMetadata(func(metadata *Metadata) error {
+		u := findUserByID(metadata, userID)
+		if u == nil {
+			return errSkipSave
+		}
+		userFound = true
+		oldAvatar = u.Avatar
+		u.Avatar = "/uploads/" + filename
+		return nil
+	})
+	if err != nil && !errors.Is(err, errSkipSave) {
+		removeUploadByURL("/uploads/" + filename)
+		http500(w, err)
+		return
+	}
+	if !userFound {
+		removeUploadByURL("/uploads/" + filename)
+		http.Error(w, "用户不存在", http.StatusUnauthorized)
+		return
+	}
+	removeUploadByURL(oldAvatar)
+
+	writeJSON(w, http.StatusOK, map[string]string{
 		"url":      "/uploads/" + filename,
 		"filename": filename,
 	})
@@ -887,7 +1012,20 @@ func getComments(w http.ResponseWriter, r *http.Request) {
 		return list[i].CreatedAt.Before(list[j].CreatedAt)
 	})
 
+	// 分页：默认 500 条，防止评论量增长后单次响应无限膨胀。
+	total := len(list)
+	limit, offset := paginateParams(r)
+	if offset > len(list) {
+		offset = len(list)
+	}
+	end := offset + limit
+	if end > len(list) {
+		end = len(list)
+	}
+	list = list[offset:end]
+
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Total-Count", strconv.Itoa(total))
 	json.NewEncoder(w).Encode(list)
 }
 
@@ -1139,7 +1277,19 @@ func getMessages(w http.ResponseWriter, r *http.Request) {
 		return list[i].CreatedAt.After(list[j].CreatedAt)
 	})
 
+	total := len(list)
+	limit, offset := paginateParams(r)
+	if offset > len(list) {
+		offset = len(list)
+	}
+	end := offset + limit
+	if end > len(list) {
+		end = len(list)
+	}
+	list = list[offset:end]
+
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Total-Count", strconv.Itoa(total))
 	json.NewEncoder(w).Encode(list)
 }
 
@@ -1378,7 +1528,7 @@ func getPost(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 读取文章内容
-	content, err := os.ReadFile(filepath.Join(postsDir, post.ID+".md"))
+	content, err := readPostContent(post.ID)
 	if err != nil {
 		http500(w, err)
 		return
@@ -1393,7 +1543,7 @@ func getPost(w http.ResponseWriter, r *http.Request) {
 		"category":  post.Category,
 		"tags":      post.Tags,
 		"excerpt":   post.Excerpt,
-		"content":   string(content),
+		"content":   content,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1419,33 +1569,10 @@ func login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 首次登录设置密码
-	if metadata.Admin == nil {
-		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-		if err != nil {
-			http500(w, err)
-			return
-		}
-
-		metadata.Admin = &AdminConfig{PasswordHash: string(hash)}
-		if err := saveMetadata(metadata); err != nil {
-			http500(w, err)
-			return
-		}
-
-		session, _ := store.Get(r, "session")
-		session.Values["admin"] = true
-		if u := adminSessionUser(metadata); u != nil {
-			session.Values["userID"] = u.ID
-			session.Values["username"] = u.Username
-			session.Values["isAdmin"] = u.IsAdmin
-		}
-		session.Save(r, w)
-
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success":   true,
-			"firstTime": true,
-		})
+	// 站点未初始化时，登录接口不再承担“首次设置密码”的职责。
+	// 旧实现会在 Admin 为空时用请求体密码创建管理员，任何先扫到端口的人都能接管后台。
+	if metadata.Admin == nil || metadata.Admin.PasswordHash == "" {
+		writeJSONError(w, http.StatusConflict, "站点尚未初始化，请先访问 /setup 完成初始化")
 		return
 	}
 
@@ -1461,8 +1588,11 @@ func login(w http.ResponseWriter, r *http.Request) {
 		session.Values["userID"] = u.ID
 		session.Values["username"] = u.Username
 		session.Values["isAdmin"] = u.IsAdmin
+		session.Values["sessionVersion"] = u.SessionVersion
 	}
 	session.Save(r, w)
+
+	auditLog("admin-login", r, "username="+metadata.Admin.Username)
 
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
@@ -1483,48 +1613,50 @@ func logout(w http.ResponseWriter, r *http.Request) {
 func createPost(w http.ResponseWriter, r *http.Request) {
 	var req CreatePostRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	metadata, err := loadMetadata()
-	if err != nil {
-		http500(w, err)
+		http.Error(w, "无效的请求", http.StatusBadRequest)
 		return
 	}
 
 	now := time.Now()
-	slug, err := resolvePostSlug(metadata, req.Slug, req.Title, "")
+	var created Post
+	var slugErr error
+	err := withMetadata(func(metadata *Metadata) error {
+		slug, e := resolvePostSlug(metadata, req.Slug, req.Title, "")
+		if e != nil {
+			slugErr = e
+			return e
+		}
+		created = Post{
+			ID:        strconv.FormatInt(now.UnixNano(), 10),
+			Title:     req.Title,
+			Slug:      slug,
+			Date:      now,
+			CreatedAt: now,
+			Category:  req.Category,
+			Tags:      req.Tags,
+			Excerpt:   getExcerpt(req.Content, 150),
+			Cover:     req.Cover,
+		}
+		// 正文先落盘再保存 metadata：失败最多留下一个孤儿文件，不会出现“有记录无内容”。
+		if e := writeFileAtomic(filepath.Join(postsDir, created.ID+".md"), []byte(req.Content), 0600); e != nil {
+			return e
+		}
+		metadata.Posts = append(metadata.Posts, created)
+		return nil
+	})
+	if slugErr != nil {
+		http.Error(w, slugErr.Error(), http.StatusBadRequest)
+		return
+	}
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	post := Post{
-		ID:        strconv.FormatInt(now.UnixNano(), 10),
-		Title:     req.Title,
-		Slug:      slug,
-		Date:      now,
-		CreatedAt: now,
-		Category:  req.Category,
-		Tags:      req.Tags,
-		Excerpt:   getExcerpt(req.Content, 150),
-		Cover:     req.Cover,
-	}
-
-	// 保存文章内容
-	if err := os.WriteFile(filepath.Join(postsDir, post.ID+".md"), []byte(req.Content), 0644); err != nil {
 		http500(w, err)
 		return
 	}
-
-	metadata.Posts = append(metadata.Posts, post)
-	if err := saveMetadata(metadata); err != nil {
-		http500(w, err)
-		return
-	}
+	invalidatePostContent(created.ID)
+	auditLog("post-created", r, "slug="+created.Slug)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(post)
+	json.NewEncoder(w).Encode(created)
 }
 
 func updatePost(w http.ResponseWriter, r *http.Request) {
@@ -1537,46 +1669,48 @@ func updatePost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metadata, err := loadMetadata()
-	if err != nil {
-		http500(w, err)
+	// 校验与写入放在同一临界区，避免两个管理员同时编辑时互相覆盖。
+	var slugErr error
+	var postMissing bool
+	err := withMetadata(func(metadata *Metadata) error {
+		for i := range metadata.Posts {
+			if metadata.Posts[i].ID == id {
+				slug, e := resolvePostSlug(metadata, req.Slug, req.Title, id)
+				if e != nil {
+					slugErr = e
+					return e
+				}
+				metadata.Posts[i].Title = req.Title
+				metadata.Posts[i].Slug = slug
+				metadata.Posts[i].Category = req.Category
+				metadata.Posts[i].Tags = req.Tags
+				metadata.Posts[i].Excerpt = getExcerpt(req.Content, 150)
+				metadata.Posts[i].Cover = req.Cover
+				metadata.Posts[i].UpdatedAt = time.Now()
+				// 正文原子写，避免崩溃后留下半截文章。
+				if e := writeFileAtomic(filepath.Join(postsDir, id+".md"), []byte(req.Content), 0600); e != nil {
+					return e
+				}
+				return nil
+			}
+		}
+		postMissing = true
+		return errSkipSave
+	})
+	if slugErr != nil {
+		http.Error(w, slugErr.Error(), http.StatusBadRequest)
 		return
 	}
-
-	found := false
-	for i, p := range metadata.Posts {
-		if p.ID == id {
-			slug, err := resolvePostSlug(metadata, req.Slug, req.Title, id)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
-				return
-			}
-			metadata.Posts[i].Title = req.Title
-			metadata.Posts[i].Slug = slug
-			metadata.Posts[i].Category = req.Category
-			metadata.Posts[i].Tags = req.Tags
-			metadata.Posts[i].Excerpt = getExcerpt(req.Content, 150)
-			metadata.Posts[i].Cover = req.Cover
-			metadata.Posts[i].UpdatedAt = time.Now()
-			found = true
-			break
-		}
-	}
-
-	if !found {
+	if postMissing {
 		http.Error(w, "文章不存在", http.StatusNotFound)
 		return
 	}
-
-	if err := os.WriteFile(filepath.Join(postsDir, id+".md"), []byte(req.Content), 0644); err != nil {
+	if err != nil && !errors.Is(err, errSkipSave) {
 		http500(w, err)
 		return
 	}
-
-	if err := saveMetadata(metadata); err != nil {
-		http500(w, err)
-		return
-	}
+	invalidatePostContent(id)
+	auditLog("post-updated", r, "id="+id)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
@@ -1586,40 +1720,68 @@ func deletePost(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id := vars["id"]
 
-	metadata, err := loadMetadata()
-	if err != nil {
-		http500(w, err)
-		return
-	}
-
-	newPosts := []Post{}
-	for _, p := range metadata.Posts {
-		if p.ID != id {
-			newPosts = append(newPosts, p)
+	var postMissing bool
+	err := withMetadata(func(metadata *Metadata) error {
+		newPosts := make([]Post, 0, len(metadata.Posts))
+		for _, p := range metadata.Posts {
+			if p.ID != id {
+				newPosts = append(newPosts, p)
+			}
 		}
+		if len(newPosts) == len(metadata.Posts) {
+			postMissing = true
+			return errSkipSave
+		}
+		metadata.Posts = newPosts
+		return nil
+	})
+	if postMissing {
+		http.Error(w, "文章不存在", http.StatusNotFound)
+		return
 	}
-	metadata.Posts = newPosts
-
-	os.Remove(filepath.Join(postsDir, id+".md"))
-
-	if err := saveMetadata(metadata); err != nil {
+	if err != nil && !errors.Is(err, errSkipSave) {
 		http500(w, err)
 		return
 	}
+
+	// 先保存 metadata 再删正文：即使删除失败，也只会留下一个孤儿文件，
+	// 不会出现“记录已删、正文还在”或“记录指向已删文件”。
+	if err := os.Remove(filepath.Join(postsDir, id+".md")); err != nil && !os.IsNotExist(err) {
+		log.Printf("删除文章正文失败 id=%s: %v", id, err)
+	}
+	invalidatePostContent(id)
+	auditLog("post-deleted", r, "id="+id)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
 func uploadFile(w http.ResponseWriter, r *http.Request) {
-	r.ParseMultipartForm(10 << 20) // 10 MB
+	if !rateLimitAllow(w, "upload:"+getClientIP(r), 30, time.Hour) {
+		return
+	}
+	if uploadsDirBytes() > maxUploadsDirBytes {
+		http.Error(w, "存储空间已满，请联系管理员", http.StatusInsufficientStorage)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 12<<20)
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		http.Error(w, "上传失败或文件过大", http.StatusBadRequest)
+		return
+	}
 
 	file, handler, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "上传失败", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
+
+	if handler.Size > 10<<20 {
+		http.Error(w, "文件不能超过 10MB", http.StatusRequestEntityTooLarge)
+		return
+	}
 
 	ext := strings.ToLower(filepath.Ext(handler.Filename))
 	allowedExts := map[string]bool{
@@ -1635,7 +1797,7 @@ func uploadFile(w http.ResponseWriter, r *http.Request) {
 	// 只保留文件名部分并替换特殊字符，防止路径穿越与危险文件上传
 	safeName := strings.Map(func(c rune) rune {
 		switch c {
-		case '/', '\\', ':', '*', '?', '"', '<', '>', '|', '\x00':
+		case '/', '\\', ':', '*', '?', '"', '<', '>', '|', '\x00', '\'':
 			return '-'
 		}
 		return c
@@ -1646,32 +1808,52 @@ func uploadFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filename := fmt.Sprintf("%d-%s", time.Now().UnixNano(), safeName)
-	filepath := filepath.Join(uploadsDir, filename)
-
-	dst, err := os.Create(filepath)
-	if err != nil {
-		http500(w, err)
-		return
-	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, file); err != nil {
+	if err := writeUploadAtomic(filename, file, 10<<20); err != nil {
 		http500(w, err)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	writeJSON(w, http.StatusOK, map[string]string{
 		"url":      "/uploads/" + filename,
 		"filename": handler.Filename,
 	})
 }
 
+// requireAuth 校验管理员身份。除会话标记外，每次都回查 metadata：
+// 用户被删除、被降权或 sessionVersion 已变化时，旧 cookie 立即失效。
 func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		session, _ := store.Get(r, "session")
 		if auth, ok := session.Values["admin"].(bool); !ok || !auth {
 			http.Error(w, "未授权", http.StatusUnauthorized)
+			return
+		}
+		metadata, err := loadMetadata()
+		if err != nil {
+			http500(w, err)
+			return
+		}
+		if metadata.Admin == nil {
+			http.Error(w, "未授权", http.StatusUnauthorized)
+			return
+		}
+		userID, _ := session.Values["userID"].(string)
+		if userID == "" {
+			// 只有会话里没有用户记录的历史管理员会话才回退到 Admin 配置校验。
+			if metadata.Admin.PasswordHash == "" {
+				http.Error(w, "未授权", http.StatusUnauthorized)
+				return
+			}
+			next(w, r)
+			return
+		}
+		u := findUserByID(metadata, userID)
+		if u == nil || !u.IsAdmin {
+			http.Error(w, "登录状态已失效，请重新登录", http.StatusUnauthorized)
+			return
+		}
+		if v, _ := session.Values["sessionVersion"].(int); v != u.SessionVersion {
+			http.Error(w, "登录状态已失效，请重新登录", http.StatusUnauthorized)
 			return
 		}
 		next(w, r)
@@ -1681,8 +1863,23 @@ func requireAuth(next http.HandlerFunc) http.HandlerFunc {
 func requireUserAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		session, _ := store.Get(r, "session")
-		if userID, ok := session.Values["userID"].(string); !ok || userID == "" {
+		userID, ok := session.Values["userID"].(string)
+		if !ok || userID == "" {
 			http.Error(w, "未授权", http.StatusUnauthorized)
+			return
+		}
+		metadata, err := loadMetadata()
+		if err != nil {
+			http500(w, err)
+			return
+		}
+		u := findUserByID(metadata, userID)
+		if u == nil {
+			http.Error(w, "登录状态已失效，请重新登录", http.StatusUnauthorized)
+			return
+		}
+		if v, _ := session.Values["sessionVersion"].(int); v != u.SessionVersion {
+			http.Error(w, "登录状态已失效，请重新登录", http.StatusUnauthorized)
 			return
 		}
 		next(w, r)
@@ -1735,14 +1932,31 @@ func getExcerpt(content string, length int) string {
 }
 
 func uploadBackground(w http.ResponseWriter, r *http.Request) {
-	r.ParseMultipartForm(10 << 20) // 10 MB
+	if !rateLimitAllow(w, "bg-upload:"+getClientIP(r), 10, time.Hour) {
+		return
+	}
+	if uploadsDirBytes() > maxUploadsDirBytes {
+		http.Error(w, "存储空间已满，请联系管理员", http.StatusInsufficientStorage)
+		return
+	}
+
+	r.Body = http.MaxBytesReader(w, r.Body, 6<<20)
+	if err := r.ParseMultipartForm(5 << 20); err != nil {
+		http.Error(w, "上传失败或文件过大", http.StatusBadRequest)
+		return
+	}
 
 	file, handler, err := r.FormFile("background")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "上传失败", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
+
+	if handler.Size > 5<<20 {
+		http.Error(w, "背景图不能超过 5MB", http.StatusRequestEntityTooLarge)
+		return
+	}
 
 	// 扩展名白名单 + Content-Type 双重校验（Content-Type 客户端可伪造，不能单独依赖）
 	ext := strings.ToLower(filepath.Ext(handler.Filename))
@@ -1753,51 +1967,45 @@ func uploadBackground(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filename := fmt.Sprintf("custom-bg-%d%s", time.Now().UnixNano(), ext)
-	filepath := filepath.Join(uploadsDir, filename)
+	if err := writeUploadAtomic(filename, file, 5<<20); err != nil {
+		http500(w, err)
+		return
+	}
 
-	dst, err := os.Create(filepath)
+	// 更新元数据并回收旧背景，避免反复更换把磁盘占满。
+	var oldBackground string
+	err = withMetadata(func(metadata *Metadata) error {
+		oldBackground = metadata.CustomBackground
+		metadata.CustomBackground = "/uploads/" + filename
+		return nil
+	})
 	if err != nil {
+		removeUploadByURL("/uploads/" + filename)
 		http500(w, err)
 		return
 	}
-	defer dst.Close()
-
-	if _, err := io.Copy(dst, file); err != nil {
-		http500(w, err)
-		return
+	if oldBackground != "/uploads/"+filename {
+		removeUploadByURL(oldBackground)
 	}
 
-	// 更新元数据
-	metadata, err := loadMetadata()
-	if err != nil {
-		http500(w, err)
-		return
-	}
-
-	metadata.CustomBackground = "/uploads/" + filename
-	if err := saveMetadata(metadata); err != nil {
-		http500(w, err)
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
+	writeJSON(w, http.StatusOK, map[string]string{
 		"url": "/uploads/" + filename,
 	})
 }
 
 func resetBackground(w http.ResponseWriter, r *http.Request) {
-	metadata, err := loadMetadata()
+	var oldBackground string
+	err := withMetadata(func(metadata *Metadata) error {
+		oldBackground = metadata.CustomBackground
+		metadata.CustomBackground = ""
+		return nil
+	})
 	if err != nil {
 		http500(w, err)
 		return
 	}
-
-	metadata.CustomBackground = ""
-	if err := saveMetadata(metadata); err != nil {
-		http500(w, err)
-		return
-	}
+	removeUploadByURL(oldBackground)
+	auditLog("background-reset", r, "")
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -1872,11 +2080,19 @@ func resetSite(w http.ResponseWriter, r *http.Request) {
 	// 为每篇示例文章创建内容文件
 	for _, post := range defaultMetadata.Posts {
 		if content, exists := sampleContents[post.Slug]; exists {
-			if err := os.WriteFile(filepath.Join(postsDir, post.ID+".md"), []byte(content), 0644); err != nil {
+			if err := writeFileAtomic(filepath.Join(postsDir, post.ID+".md"), []byte(content), 0600); err != nil {
 				log.Printf("创建示例文章内容失败: %v", err)
 			}
 		}
 	}
+
+	// 重置后站点回到未初始化状态：清缓存并发放新的初始化口令，
+	// 否则没人能完成 setup（口令只在启动时打印过）。
+	invalidateMetadataCache()
+	invalidateAllPostContent()
+	token := regenerateSetupToken()
+	auditLog("site-reset", r, "新的初始化口令已输出到服务端日志")
+	fmt.Printf("\n🔐 站点已重置。请访问 /setup 并填入一次性初始化口令: %s\n\n", token)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -1896,46 +2112,62 @@ func changePassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metadata, err := loadMetadata()
+	if err := validateNewPassword(req.NewPassword); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
 		http500(w, err)
 		return
 	}
 
-	if err := verifyVerificationCode(req.Email, req.Code, "password-reset"); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	var smtpConfig *SMTPConfig
+	var verifyErr error
+	var userMissing bool
+	err = withMetadata(func(metadata *Metadata) error {
+		if e := verifyVerificationCode(req.Email, req.Code, "password-reset"); e != nil {
+			verifyErr = e
+			return e
+		}
+		for i := range metadata.Users {
+			if emailsEqual(metadata.Users[i].Email, req.Email) {
+				metadata.Users[i].PasswordHash = string(hashedPassword)
+				// 改密后旧会话立即失效。
+				metadata.Users[i].SessionVersion++
+				syncAdminCredential(metadata, &metadata.Users[i])
+				if metadata.Admin != nil {
+					metadata.Admin.SessionVersion = metadata.Users[i].SessionVersion
+				}
+				if metadata.SMTP != nil {
+					c := *metadata.SMTP
+					smtpConfig = &c
+				}
+				return nil
+			}
+		}
+		userMissing = true
+		return errSkipSave
+	})
+	if verifyErr != nil {
+		http.Error(w, verifyErr.Error(), http.StatusBadRequest)
 		return
 	}
-
-	// 查找用户并更新密码
-	found := false
-	for i := range metadata.Users {
-		if emailsEqual(metadata.Users[i].Email, req.Email) {
-			hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
-			if err != nil {
-				http500(w, err)
-				return
-			}
-			metadata.Users[i].PasswordHash = string(hashedPassword)
-			found = true
-			break
-		}
-	}
-
-	if !found {
+	if userMissing {
 		http.Error(w, "用户不存在", http.StatusNotFound)
 		return
 	}
-
-	_ = deleteVerificationCode(req.Email)
-
-	if err := saveMetadata(metadata); err != nil {
+	if err != nil && !errors.Is(err, errSkipSave) {
 		http500(w, err)
 		return
 	}
 
+	_ = deleteVerificationCode(req.Email)
+	auditLog("password-changed", r, "email="+normalizeEmail(req.Email))
+
 	// 发送密码修改成功通知邮件
-	if metadata.SMTP != nil {
+	if smtpConfig != nil {
 		clientIP := getClientIP(r)
 		location := resolveIPLocation(clientIP)
 		subject := "您的密码已修改成功"
@@ -1952,7 +2184,7 @@ IP归属地：%s
 			clientIP,
 			location)
 
-		sendEmail(metadata.SMTP, req.Email, subject, body)
+		sendEmail(smtpConfig, req.Email, subject, body)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1980,43 +2212,56 @@ func changeEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metadata, err := loadMetadata()
-	if err != nil {
-		http500(w, err)
-		return
-	}
-
-	if err := verifyVerificationCode(req.NewEmail, req.Code, "email-change"); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	// 查找当前用户并更新邮箱
+	// 验证码校验、用户查找与写入放在同一临界区。
 	var oldEmail string
-	found := false
-	for i := range metadata.Users {
-		if metadata.Users[i].ID == userID {
-			oldEmail = metadata.Users[i].Email
-			metadata.Users[i].Email = req.NewEmail
-			found = true
-			break
+	var newVersion int
+	var smtpConfig *SMTPConfig
+	var verifyErr error
+	var userMissing bool
+	err := withMetadata(func(metadata *Metadata) error {
+		if e := verifyVerificationCode(req.NewEmail, req.Code, "email-change"); e != nil {
+			verifyErr = e
+			return e
 		}
+		for i := range metadata.Users {
+			if metadata.Users[i].ID == userID {
+				oldEmail = metadata.Users[i].Email
+				metadata.Users[i].Email = req.NewEmail
+				// 邮箱是登录凭据之一，换绑后其它会话必须重新登录。
+				metadata.Users[i].SessionVersion++
+				newVersion = metadata.Users[i].SessionVersion
+				if metadata.SMTP != nil {
+					c := *metadata.SMTP
+					smtpConfig = &c
+				}
+				return nil
+			}
+		}
+		userMissing = true
+		return errSkipSave
+	})
+	if verifyErr != nil {
+		http.Error(w, verifyErr.Error(), http.StatusBadRequest)
+		return
 	}
-
-	if !found {
+	if userMissing {
 		http.Error(w, "用户不存在", http.StatusNotFound)
+		return
+	}
+	if err != nil && !errors.Is(err, errSkipSave) {
+		http500(w, err)
 		return
 	}
 
 	_ = deleteVerificationCode(req.NewEmail)
 
-	if err := saveMetadata(metadata); err != nil {
-		http500(w, err)
-		return
-	}
+	// 当前会话同步到新版本，其他设备上的旧会话失效。
+	session.Values["sessionVersion"] = newVersion
+	session.Save(r, w)
+	auditLog("email-changed", r, "email="+normalizeEmail(req.NewEmail))
 
 	// 发送换绑成功通知邮件到旧邮箱
-	if metadata.SMTP != nil && oldEmail != "" {
+	if smtpConfig != nil && oldEmail != "" {
 		clientIP := getClientIP(r)
 		location := resolveIPLocation(clientIP)
 		subject := "您的账号邮箱已换绑"
@@ -2035,7 +2280,7 @@ IP归属地：%s
 			location,
 			req.NewEmail)
 
-		sendEmail(metadata.SMTP, oldEmail, subject, body)
+		sendEmail(smtpConfig, oldEmail, subject, body)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -2059,46 +2304,61 @@ func resetPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metadata, err := loadMetadata()
+	if err := validateNewPassword(req.NewPassword); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
 	if err != nil {
 		http500(w, err)
 		return
 	}
 
-	if err := verifyVerificationCode(req.Email, req.Code, "password-reset"); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	var smtpConfig *SMTPConfig
+	var verifyErr error
+	var userMissing bool
+	err = withMetadata(func(metadata *Metadata) error {
+		if e := verifyVerificationCode(req.Email, req.Code, "password-reset"); e != nil {
+			verifyErr = e
+			return e
+		}
+		for i := range metadata.Users {
+			if emailsEqual(metadata.Users[i].Email, req.Email) {
+				metadata.Users[i].PasswordHash = string(hashedPassword)
+				metadata.Users[i].SessionVersion++
+				syncAdminCredential(metadata, &metadata.Users[i])
+				if metadata.Admin != nil {
+					metadata.Admin.SessionVersion = metadata.Users[i].SessionVersion
+				}
+				if metadata.SMTP != nil {
+					c := *metadata.SMTP
+					smtpConfig = &c
+				}
+				return nil
+			}
+		}
+		userMissing = true
+		return errSkipSave
+	})
+	if verifyErr != nil {
+		http.Error(w, verifyErr.Error(), http.StatusBadRequest)
 		return
 	}
-
-	// 查找用户并更新密码
-	found := false
-	for i := range metadata.Users {
-		if emailsEqual(metadata.Users[i].Email, req.Email) {
-			hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.NewPassword), bcrypt.DefaultCost)
-			if err != nil {
-				http500(w, err)
-				return
-			}
-			metadata.Users[i].PasswordHash = string(hashedPassword)
-			found = true
-			break
-		}
-	}
-
-	if !found {
+	if userMissing {
 		http.Error(w, "用户不存在", http.StatusNotFound)
 		return
 	}
-
-	_ = deleteVerificationCode(req.Email)
-
-	if err := saveMetadata(metadata); err != nil {
+	if err != nil && !errors.Is(err, errSkipSave) {
 		http500(w, err)
 		return
 	}
 
+	_ = deleteVerificationCode(req.Email)
+	auditLog("password-reset", r, "email="+normalizeEmail(req.Email))
+
 	// 发送密码修改成功通知邮件
-	if metadata.SMTP != nil {
+	if smtpConfig != nil {
 		clientIP := getClientIP(r)
 		location := resolveIPLocation(clientIP)
 		subject := "您的密码已修改成功"
@@ -2115,7 +2375,7 @@ IP归属地：%s
 			clientIP,
 			location)
 
-		sendEmail(metadata.SMTP, req.Email, subject, body)
+		sendEmail(smtpConfig, req.Email, subject, body)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -2195,58 +2455,61 @@ func updateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metadata, err := loadMetadata()
+	// 逐个字段判断：只有请求中显式出现的字段才更新，未出现的保留原值。
+	// 整个读-改-写放在同一临界区，避免设置页与其它写操作互相覆盖。
+	err := withMetadata(func(metadata *Metadata) error {
+		if req.SiteName != nil {
+			metadata.SiteName = *req.SiteName
+		}
+		if req.GitHubURL != nil {
+			metadata.GitHubURL = *req.GitHubURL
+		}
+		if req.EmailAddress != nil {
+			metadata.EmailAddress = *req.EmailAddress
+		}
+		if req.Avatar != nil {
+			metadata.Avatar = *req.Avatar
+		}
+		if req.Nickname != nil {
+			metadata.Nickname = *req.Nickname
+		}
+		if req.Bio != nil {
+			metadata.Bio = *req.Bio
+		}
+		if req.SocialLinks != nil {
+			// 社交链接允许留空：过滤空壳条目，并且只保留 http/https 地址，
+			// 防止管理员（或被接管的账号）写入 javascript: 造成点击即执行。
+			cleaned := make([]SocialLink, 0, len(*req.SocialLinks))
+			for _, l := range *req.SocialLinks {
+				if strings.TrimSpace(l.URL) == "" {
+					continue
+				}
+				if !isSafePublicURL(l.URL) {
+					continue
+				}
+				cleaned = append(cleaned, l)
+			}
+			metadata.SocialLinks = cleaned
+		}
+		if req.Categories != nil {
+			metadata.Categories = *req.Categories
+		}
+		if req.Tags != nil {
+			metadata.Tags = *req.Tags
+		}
+		if req.Notice != nil {
+			metadata.Notice = *req.Notice
+		}
+		if req.SiteStartDate != nil {
+			metadata.SiteStartDate = *req.SiteStartDate
+		}
+		return nil
+	})
 	if err != nil {
 		http500(w, err)
 		return
 	}
-
-	// 逐个字段判断：只有请求中显式出现的字段才更新，未出现的保留原值。
-	if req.SiteName != nil {
-		metadata.SiteName = *req.SiteName
-	}
-	if req.GitHubURL != nil {
-		metadata.GitHubURL = *req.GitHubURL
-	}
-	if req.EmailAddress != nil {
-		metadata.EmailAddress = *req.EmailAddress
-	}
-	if req.Avatar != nil {
-		metadata.Avatar = *req.Avatar
-	}
-	if req.Nickname != nil {
-		metadata.Nickname = *req.Nickname
-	}
-	if req.Bio != nil {
-		metadata.Bio = *req.Bio
-	}
-	if req.SocialLinks != nil {
-		// 社交链接允许留空：过滤掉 url 为空的空壳条目，避免污染持久化数据
-		cleaned := make([]SocialLink, 0, len(*req.SocialLinks))
-		for _, l := range *req.SocialLinks {
-			if strings.TrimSpace(l.URL) != "" {
-				cleaned = append(cleaned, l)
-			}
-		}
-		metadata.SocialLinks = cleaned
-	}
-	if req.Categories != nil {
-		metadata.Categories = *req.Categories
-	}
-	if req.Tags != nil {
-		metadata.Tags = *req.Tags
-	}
-	if req.Notice != nil {
-		metadata.Notice = *req.Notice
-	}
-	if req.SiteStartDate != nil {
-		metadata.SiteStartDate = *req.SiteStartDate
-	}
-
-	if err := saveMetadata(metadata); err != nil {
-		http500(w, err)
-		return
-	}
+	auditLog("settings-updated", r, "")
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2430,9 +2693,15 @@ type SetupRequest struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
+	// SetupToken 一次性初始化口令，由服务端启动日志输出。
+	SetupToken string `json:"setupToken"`
 }
 
 func setupSite(w http.ResponseWriter, r *http.Request) {
+	// 初始化只允许成功一次：串行化避免并发请求各自创建一个管理员。
+	setupMu.Lock()
+	defer setupMu.Unlock()
+
 	metadata, err := loadMetadata()
 	if err != nil {
 		http500(w, err)
@@ -2447,7 +2716,18 @@ func setupSite(w http.ResponseWriter, r *http.Request) {
 
 	var req SetupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "无效的请求", http.StatusBadRequest)
+		return
+	}
+
+	// 一次性口令：没有它，任何人抢先访问 /api/setup 都能注册成管理员。
+	token := req.SetupToken
+	if token == "" {
+		token = r.Header.Get("X-Setup-Token")
+	}
+	if !validSetupToken(token) {
+		auditLog("setup-rejected", r, "初始化口令不正确")
+		http.Error(w, "初始化口令无效，请查看服务端日志", http.StatusForbidden)
 		return
 	}
 
@@ -2464,8 +2744,8 @@ func setupSite(w http.ResponseWriter, r *http.Request) {
 		req.Username = uname
 	}
 
-	if len(req.Password) < 6 {
-		http.Error(w, "密码至少6个字符", http.StatusBadRequest)
+	if err := validateNewPassword(req.Password); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -2478,21 +2758,23 @@ func setupSite(w http.ResponseWriter, r *http.Request) {
 
 	// 创建管理员用户
 	adminUser := User{
-		ID:           fmt.Sprintf("%d", time.Now().UnixNano()),
-		Username:     req.Username,
-		Email:        req.Email,
-		PasswordHash: string(hash),
-		Avatar:       "/BG/icon.jpg",
-		IsAdmin:      true,
-		CreatedAt:    time.Now(),
-		Verified:     true,
+		ID:             fmt.Sprintf("%d", time.Now().UnixNano()),
+		Username:       req.Username,
+		Email:          req.Email,
+		PasswordHash:   string(hash),
+		Avatar:         "/BG/icon.jpg",
+		IsAdmin:        true,
+		CreatedAt:      time.Now(),
+		Verified:       true,
+		SessionVersion: 1,
 	}
 
 	// 保存设置
 	metadata.SiteName = req.SiteName
 	metadata.Admin = &AdminConfig{
-		Username:     req.Username,
-		PasswordHash: string(hash),
+		Username:       req.Username,
+		PasswordHash:   string(hash),
+		SessionVersion: 1,
 	}
 	metadata.Users = append(metadata.Users, adminUser)
 	metadata.SetupCompleted = true
@@ -2561,7 +2843,7 @@ func setupSite(w http.ResponseWriter, r *http.Request) {
 				filePath := filepath.Join(postsDir, post.ID+".md")
 				// 只有文件不存在时才创建
 				if _, err := os.Stat(filePath); os.IsNotExist(err) {
-					if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+					if err := os.WriteFile(filePath, []byte(content), 0600); err != nil {
 						log.Printf("创建示例文章内容失败: %v", err)
 					}
 				}
@@ -2573,8 +2855,12 @@ func setupSite(w http.ResponseWriter, r *http.Request) {
 	session, _ := store.Get(r, "session")
 	session.Values["admin"] = true
 	session.Values["userID"] = adminUser.ID
+	session.Values["username"] = adminUser.Username
 	session.Values["isAdmin"] = true
+	session.Values["sessionVersion"] = adminUser.SessionVersion
 	session.Save(r, w)
+
+	auditLog("setup-completed", r, "username="+adminUser.Username)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2618,17 +2904,28 @@ func deleteFile(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	filename := vars["filename"]
 
-	// 安全检查
-	if strings.Contains(filename, "..") || strings.Contains(filename, "/") {
+	// 安全检查：拒绝路径分隔符（含 Windows 反斜杠）、穿越与任何非基名输入
+	if strings.ContainsAny(filename, "/\\") || strings.Contains(filename, "..") || filename != filepath.Base(filename) {
 		http.Error(w, "无效的文件名", http.StatusBadRequest)
 		return
 	}
 
 	filePath := filepath.Join(uploadsDir, filename)
-	if err := os.Remove(filePath); err != nil {
+	root, err := filepath.Abs(uploadsDir)
+	if err != nil {
 		http500(w, err)
 		return
 	}
+	abs, err := filepath.Abs(filePath)
+	if err != nil || abs != filepath.Join(root, filename) {
+		http.Error(w, "无效的文件名", http.StatusBadRequest)
+		return
+	}
+	if err := os.Remove(abs); err != nil {
+		http500(w, err)
+		return
+	}
+	auditLog("file-deleted", r, "name="+filename)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2637,59 +2934,64 @@ func deleteFile(w http.ResponseWriter, r *http.Request) {
 }
 
 func exportDataAPI(w http.ResponseWriter, r *http.Request) {
-	if err := exportData(); err != nil {
-		http500(w, err)
-		return
-	}
-
-	// 读取生成的备份文件
-	data, err := os.ReadFile("backup.tar.gz")
+	path, err := exportData()
 	if err != nil {
 		http500(w, err)
 		return
 	}
+	defer os.Remove(path)
 
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=gl-blog-backup-%s.tar.gz", time.Now().Format("20060102-150405")))
-	w.Write(data)
+	// 直接流式发送，避免把整个备份读进内存（峰值内存约为包大小的两倍）。
+	http.ServeFile(w, r, path)
 
-	// 删除临时文件
-	os.Remove("backup.tar.gz")
+	auditLog("export-completed", r, "")
 }
 
 func importDataAPI(w http.ResponseWriter, r *http.Request) {
-	r.ParseMultipartForm(50 << 20) // 50 MB
+	// 导入合法上限 256MB；仍然有界，不会把内存/磁盘写穿。
+	r.Body = http.MaxBytesReader(w, r.Body, 256<<20)
+	if err := r.ParseMultipartForm(64 << 20); err != nil {
+		http.Error(w, "上传失败或文件过大", http.StatusBadRequest)
+		return
+	}
 
 	file, _, err := r.FormFile("file")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "上传失败", http.StatusBadRequest)
 		return
 	}
 	defer file.Close()
 
-	// 保存上传的文件
-	tempFile := "temp-import.tar.gz"
-	dst, err := os.Create(tempFile)
+	tmp, err := os.CreateTemp(dataDir, "import-*.tar.gz")
 	if err != nil {
 		http500(w, err)
 		return
 	}
-	defer dst.Close()
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
 
-	if _, err := io.Copy(dst, file); err != nil {
+	if _, err := io.Copy(tmp, io.LimitReader(file, 256<<20)); err != nil {
+		tmp.Close()
 		http500(w, err)
 		return
 	}
-	dst.Close()
-
-	// 导入数据
-	if err := importData(tempFile); err != nil {
-		os.Remove(tempFile)
+	if err := tmp.Close(); err != nil {
 		http500(w, err)
 		return
 	}
 
-	os.Remove(tempFile)
+	if err := importData(tmpName); err != nil {
+		auditLog("import-failed", r, err.Error())
+		http500(w, err)
+		return
+	}
+
+	// 导入会替换磁盘上的 data/，必须同时清掉内存缓存，否则页面仍读旧数据。
+	invalidateMetadataCache()
+	invalidateAllPostContent()
+	auditLog("import-completed", r, "")
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -2721,26 +3023,8 @@ func userRegister(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Email = normalizeEmail(req.Email)
 
-	metadata, err := loadMetadata()
-	if err != nil {
-		http500(w, err)
-		return
-	}
-
-	if err := verifyVerificationCode(req.Email, req.Code, "register"); err != nil {
+	if err := validateNewPassword(req.Password); err != nil {
 		writeJSONError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
-	// 检查邮箱是否已注册
-	for _, user := range metadata.Users {
-		if emailsEqual(user.Email, req.Email) {
-			writeJSONError(w, http.StatusBadRequest, "该邮箱已被注册")
-			return
-		}
-	}
-	if usernameTaken(metadata, username, "") {
-		writeJSONError(w, http.StatusBadRequest, "该用户名已被占用")
 		return
 	}
 
@@ -2753,35 +3037,62 @@ func userRegister(w http.ResponseWriter, r *http.Request) {
 
 	userID := fmt.Sprintf("%d", time.Now().UnixNano())
 	user := User{
-		ID:           userID,
-		Username:     username,
-		Email:        req.Email,
-		PasswordHash: string(hashedPassword),
-		Avatar:       defaultAvatarURL(userID),
-		IsAdmin:      false,
-		CreatedAt:    time.Now(),
-		Verified:     true,
+		ID:             userID,
+		Username:       username,
+		Email:          req.Email,
+		PasswordHash:   string(hashedPassword),
+		Avatar:         defaultAvatarURL(userID),
+		IsAdmin:        false,
+		CreatedAt:      time.Now(),
+		Verified:       true,
+		SessionVersion: 1,
 	}
 
-	metadata.Users = append(metadata.Users, user)
-
-	_ = deleteVerificationCode(req.Email)
-
-	if err := saveMetadata(metadata); err != nil {
+	// 验证码、邮箱/用户名查重与写入必须在同一临界区，
+	// 否则并发注册会互相覆盖 metadata，出现“返回成功但账号不存在”。
+	var bizErr error
+	err = withMetadata(func(metadata *Metadata) error {
+		if e := verifyVerificationCode(req.Email, req.Code, "register"); e != nil {
+			bizErr = e
+			return e
+		}
+		for _, u := range metadata.Users {
+			if emailsEqual(u.Email, req.Email) {
+				bizErr = errors.New("该邮箱已被注册")
+				return bizErr
+			}
+		}
+		if usernameTaken(metadata, username, "") {
+			bizErr = errors.New("该用户名已被占用")
+			return bizErr
+		}
+		metadata.Users = append(metadata.Users, user)
+		return nil
+	})
+	if bizErr != nil {
+		writeJSONError(w, http.StatusBadRequest, bizErr.Error())
+		return
+	}
+	if err != nil {
 		http500(w, err)
 		return
 	}
 
+	_ = deleteVerificationCode(req.Email)
+	auditLog("user-registered", r, "username="+user.Username)
+
 	// 自动登录
 	session, _ := store.Get(r, "session")
 	session.Values["userID"] = user.ID
+	session.Values["username"] = user.Username
 	session.Values["isAdmin"] = user.IsAdmin
+	session.Values["sessionVersion"] = user.SessionVersion
 	session.Save(r, w)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"user":    user,
+		"user":    toPublicUser(&user),
 	})
 }
 
@@ -2818,6 +3129,8 @@ func userLogin(w http.ResponseWriter, r *http.Request) {
 
 	user := findUserByLogin(metadata, account)
 	if user == nil {
+		// 账号不存在时也做一次 bcrypt 比较，抹平“存在/不存在”的响应时间差。
+		dummyPasswordCompare(req.Password)
 		writeJSONError(w, http.StatusUnauthorized, "邮箱/用户名或密码错误")
 		return
 	}
@@ -2828,20 +3141,22 @@ func userLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 设置会话
+	// 设置会话。admin 必须显式赋值：同一浏览器残留的管理员标记
+	// 不能被普通账号继承（旧实现只在 IsAdmin 为真时写成 true）。
 	session, _ := store.Get(r, "session")
 	session.Values["userID"] = user.ID
+	session.Values["username"] = user.Username
 	session.Values["isAdmin"] = user.IsAdmin
-	if user.IsAdmin {
-		session.Values["admin"] = true
-	}
+	session.Values["admin"] = user.IsAdmin
+	session.Values["sessionVersion"] = user.SessionVersion
 	session.Save(r, w)
 
-	// 发送登录提醒邮件（异步，不阻塞登录）
+	// 发送登录提醒邮件（受限异步，不阻塞登录）
 	if metadata.SMTP != nil {
 		// handler 返回后 *http.Request 可能被复用，先取好 IP 再进 goroutine
 		loginIP := getClientIP(r)
-		go func() {
+		smtpCfg := metadata.SMTP
+		sendEmailAsync(func() {
 			location := getIPLocation(loginIP)
 			username := user.Username
 			if user.Nickname != "" {
@@ -2851,14 +3166,14 @@ func userLogin(w http.ResponseWriter, r *http.Request) {
 			if siteName == "" {
 				siteName = "博客"
 			}
-			sendLoginNotification(metadata.SMTP, user.Email, username, siteName, loginIP, location, time.Now())
-		}()
+			sendLoginNotification(smtpCfg, user.Email, username, siteName, loginIP, location, time.Now())
+		})
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"user":    user,
+		"user":    toPublicUser(user),
 	})
 }
 
@@ -2878,11 +3193,9 @@ func getUserInfo(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 查找用户
-	for _, user := range metadata.Users {
-		if user.ID == userID {
-			user.Avatar = resolveUserAvatar(&user)
-			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(user)
+	for i := range metadata.Users {
+		if metadata.Users[i].ID == userID {
+			writeJSON(w, http.StatusOK, toPublicUser(&metadata.Users[i]))
 			return
 		}
 	}
@@ -2916,17 +3229,6 @@ func updateUserProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metadata, err := loadMetadata()
-	if err != nil {
-		http500(w, err)
-		return
-	}
-
-	if usernameTaken(metadata, username, userID) {
-		writeJSONError(w, http.StatusBadRequest, "该用户名已被占用")
-		return
-	}
-
 	// 头像仅允许站内路径，昵称去控制字符并限长，防止存储型 XSS 与属性注入
 	avatar := strings.TrimSpace(req.Avatar)
 	if !isValidAvatarURL(avatar) {
@@ -2939,32 +3241,40 @@ func updateUserProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 查找并更新用户
-	found := false
-	isAdmin := false
-	for i := range metadata.Users {
-		if metadata.Users[i].ID == userID {
-			metadata.Users[i].Username = username
-			metadata.Users[i].Nickname = nickname
-			metadata.Users[i].Avatar = avatar
-			isAdmin = metadata.Users[i].IsAdmin
-			found = true
-
-			// 如果是管理员，同时更新首页显示的头像和昵称
-			if isAdmin {
-				metadata.Avatar = avatar
-				metadata.Nickname = nickname
-			}
-			break
+	// 查重与写入在同一临界区。
+	var nameTaken bool
+	var userMissing bool
+	err = withMetadata(func(metadata *Metadata) error {
+		if usernameTaken(metadata, username, userID) {
+			nameTaken = true
+			return errSkipSave
 		}
-	}
+		for i := range metadata.Users {
+			if metadata.Users[i].ID == userID {
+				metadata.Users[i].Username = username
+				metadata.Users[i].Nickname = nickname
+				metadata.Users[i].Avatar = avatar
 
-	if !found {
+				// 如果是管理员，同时更新首页显示的头像和昵称
+				if metadata.Users[i].IsAdmin {
+					metadata.Avatar = avatar
+					metadata.Nickname = nickname
+				}
+				return nil
+			}
+		}
+		userMissing = true
+		return errSkipSave
+	})
+	if nameTaken {
+		writeJSONError(w, http.StatusBadRequest, "该用户名已被占用")
+		return
+	}
+	if userMissing {
 		http.Error(w, "用户不存在", http.StatusNotFound)
 		return
 	}
-
-	if err := saveMetadata(metadata); err != nil {
+	if err != nil && !errors.Is(err, errSkipSave) {
 		http500(w, err)
 		return
 	}
@@ -2975,7 +3285,7 @@ func updateUserProfile(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// 获取所有用户（管理员功能）
+// 获取所有用户（管理员功能）。只返回公开字段，绝不带 passwordHash。
 func getAllUsers(w http.ResponseWriter, r *http.Request) {
 	metadata, err := loadMetadata()
 	if err != nil {
@@ -2983,8 +3293,12 @@ func getAllUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(metadata.Users)
+	users := make([]publicUser, 0, len(metadata.Users))
+	for i := range metadata.Users {
+		users = append(users, toPublicUser(&metadata.Users[i]))
+	}
+
+	writeJSON(w, http.StatusOK, users)
 }
 
 // 更新用户角色（管理员功能）
@@ -2999,36 +3313,40 @@ func updateUserRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metadata, err := loadMetadata()
-	if err != nil {
-		http500(w, err)
+	// 查找并更新用户角色
+	var bizErr error
+	var roleMissing bool
+	err := withMetadata(func(metadata *Metadata) error {
+		for i := range metadata.Users {
+			if metadata.Users[i].ID == req.UserID {
+				// 不能修改第一个用户（站长）的权限
+				if i == 0 {
+					bizErr = errors.New("不能修改站长权限")
+					return errSkipSave
+				}
+				metadata.Users[i].IsAdmin = req.IsAdmin
+				// 角色变化后旧会话立即失效。
+				metadata.Users[i].SessionVersion++
+				return nil
+			}
+		}
+		roleMissing = true
+		return errSkipSave
+	})
+	if bizErr != nil {
+		http.Error(w, bizErr.Error(), http.StatusForbidden)
 		return
 	}
-
-	// 查找并更新用户角色
-	found := false
-	for i := range metadata.Users {
-		if metadata.Users[i].ID == req.UserID {
-			// 不能修改第一个用户（站长）的权限
-			if i == 0 {
-				http.Error(w, "不能修改站长权限", http.StatusForbidden)
-				return
-			}
-			metadata.Users[i].IsAdmin = req.IsAdmin
-			found = true
-			break
-		}
-	}
-
-	if !found {
+	if roleMissing {
 		http.Error(w, "用户不存在", http.StatusNotFound)
 		return
 	}
-
-	if err := saveMetadata(metadata); err != nil {
+	if err != nil && !errors.Is(err, errSkipSave) {
 		http500(w, err)
 		return
 	}
+
+	auditLog("user-role-changed", r, fmt.Sprintf("target=%s isAdmin=%v", req.UserID, req.IsAdmin))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -3041,38 +3359,43 @@ func deleteUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	userID := vars["id"]
 
-	metadata, err := loadMetadata()
-	if err != nil {
-		http500(w, err)
+	// 查找与删除在同一临界区，避免并发写覆盖彼此。
+	var bizErr error
+	var userMissing bool
+	err := withMetadata(func(metadata *Metadata) error {
+		userIndex := -1
+		for i := range metadata.Users {
+			if metadata.Users[i].ID == userID {
+				// 不能删除第一个用户（站长）
+				if i == 0 {
+					bizErr = errors.New("不能删除站长账号")
+					return errSkipSave
+				}
+				userIndex = i
+				break
+			}
+		}
+		if userIndex == -1 {
+			userMissing = true
+			return errSkipSave
+		}
+		metadata.Users = append(metadata.Users[:userIndex], metadata.Users[userIndex+1:]...)
+		return nil
+	})
+	if bizErr != nil {
+		http.Error(w, bizErr.Error(), http.StatusForbidden)
 		return
 	}
-
-	// 查找用户并检查是否可以删除
-	userIndex := -1
-	for i, user := range metadata.Users {
-		if user.ID == userID {
-			// 不能删除第一个用户（站长）
-			if i == 0 {
-				http.Error(w, "不能删除站长账号", http.StatusForbidden)
-				return
-			}
-			userIndex = i
-			break
-		}
-	}
-
-	if userIndex == -1 {
+	if userMissing {
 		http.Error(w, "用户不存在", http.StatusNotFound)
 		return
 	}
-
-	// 删除用户
-	metadata.Users = append(metadata.Users[:userIndex], metadata.Users[userIndex+1:]...)
-
-	if err := saveMetadata(metadata); err != nil {
+	if err != nil && !errors.Is(err, errSkipSave) {
 		http500(w, err)
 		return
 	}
+
+	auditLog("user-deleted", r, "target="+userID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -3263,13 +3586,14 @@ func sendEmail(smtpConfig *SMTPConfig, to, subject, body string) error {
 			InsecureSkipVerify: false,
 		}
 
-		// 建立TLS连接
-		conn, err := tls.Dial("tcp", addr, tlsConfig)
+		// 建立TLS连接（带连接超时，避免邮件服务器不响应时请求永久挂起）
+		conn, err := tls.DialWithDialer(&net.Dialer{Timeout: smtpDialTimeout}, "tcp", addr, tlsConfig)
 		if err != nil {
 			log.Printf("SSL连接失败: %v", err)
 			return fmt.Errorf("SSL连接失败: %v", err)
 		}
 		defer conn.Close()
+		_ = conn.SetDeadline(time.Now().Add(smtpIOTimeout))
 
 		// 创建SMTP客户端
 		client, err := smtp.NewClient(conn, host)
@@ -3312,11 +3636,13 @@ func sendEmail(smtpConfig *SMTPConfig, to, subject, body string) error {
 		client.Quit()
 	} else if smtpConfig.Encryption == "TLS" {
 		// STARTTLS (端口587)
-		conn, err := net.Dial("tcp", addr)
+		conn, err := net.DialTimeout("tcp", addr, smtpDialTimeout)
 		if err != nil {
 			log.Printf("连接SMTP服务器失败: %v", err)
 			return fmt.Errorf("连接SMTP服务器失败: %v", err)
 		}
+		defer conn.Close()
+		_ = conn.SetDeadline(time.Now().Add(smtpIOTimeout))
 
 		client, err := smtp.NewClient(conn, host)
 		if err != nil {
@@ -3356,12 +3682,41 @@ func sendEmail(smtpConfig *SMTPConfig, to, subject, body string) error {
 		w.Close()
 		client.Quit()
 	} else {
-		// 无加密
-		err := smtp.SendMail(addr, auth, from, []string{to}, msg)
+		// 无加密。smtp.SendMail 内部使用无超时的 Dial，这里改用带超时的连接。
+		conn, err := net.DialTimeout("tcp", addr, smtpDialTimeout)
 		if err != nil {
-			log.Printf("发送邮件失败: %v", err)
-			return fmt.Errorf("发送邮件失败: %v", err)
+			log.Printf("连接SMTP服务器失败: %v", err)
+			return fmt.Errorf("连接SMTP服务器失败: %v", err)
 		}
+		defer conn.Close()
+		_ = conn.SetDeadline(time.Now().Add(smtpIOTimeout))
+
+		client, err := smtp.NewClient(conn, host)
+		if err != nil {
+			return fmt.Errorf("创建SMTP客户端失败: %v", err)
+		}
+		defer client.Close()
+
+		if err = client.Auth(auth); err != nil {
+			return fmt.Errorf("SMTP认证失败: %v", err)
+		}
+		if err = client.Mail(from); err != nil {
+			return fmt.Errorf("设置发件人失败: %v", err)
+		}
+		if err = client.Rcpt(to); err != nil {
+			return fmt.Errorf("设置收件人失败: %v", err)
+		}
+		w, err := client.Data()
+		if err != nil {
+			return fmt.Errorf("发送邮件数据失败: %v", err)
+		}
+		if _, err = w.Write(msg); err != nil {
+			return fmt.Errorf("写入邮件内容失败: %v", err)
+		}
+		if err = w.Close(); err != nil {
+			return fmt.Errorf("关闭邮件写入失败: %v", err)
+		}
+		client.Quit()
 	}
 
 	log.Printf("成功发送邮件到 %s: %s", to, subject)
@@ -3408,23 +3763,19 @@ func updateSMTPConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metadata, err := loadMetadata()
+	err := withMetadata(func(metadata *Metadata) error {
+		// 如果密码为空且已有配置，保留原密码
+		if config.Password == "" && metadata.SMTP != nil {
+			config.Password = metadata.SMTP.Password
+		}
+		metadata.SMTP = &config
+		return nil
+	})
 	if err != nil {
 		http500(w, err)
 		return
 	}
-
-	// 如果密码为空且已有配置，保留原密码
-	if config.Password == "" && metadata.SMTP != nil {
-		config.Password = metadata.SMTP.Password
-	}
-
-	metadata.SMTP = &config
-
-	if err := saveMetadata(metadata); err != nil {
-		http500(w, err)
-		return
-	}
+	auditLog("smtp-updated", r, "server="+config.Server)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
@@ -3527,19 +3878,17 @@ func updateAbout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	metadata, err := loadMetadata()
+	// 读-改-写放在同一临界区。
+	err := withMetadata(func(metadata *Metadata) error {
+		metadata.AboutTitle = req.Title
+		metadata.AboutContent = req.Content
+		return nil
+	})
 	if err != nil {
 		http500(w, err)
 		return
 	}
-
-	metadata.AboutTitle = req.Title
-	metadata.AboutContent = req.Content
-
-	if err := saveMetadata(metadata); err != nil {
-		http500(w, err)
-		return
-	}
+	auditLog("about-updated", r, "")
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{

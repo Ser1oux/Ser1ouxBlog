@@ -1517,7 +1517,7 @@
     </aside>
   </div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+  <script src="/public/vendor/gsap.min.js"></script>
   <script>
     if (typeof siteDisplayName !== 'function') {
       window.siteDisplayName = function(s) {
@@ -1956,15 +1956,31 @@
         socialLinksContainer.style.display = linksToShow.length === 0 ? 'none' : '';
 
         linksToShow.forEach(link => {
+          const platform = link.platform.toLowerCase();
+          const rawUrl = String(link.url || '').trim();
+          // 只允许 http/https；socialLinks 来自后台设置，若存了 javascript: 会导致点击即执行。
+          let href = '';
+          if (platform === 'email') {
+            href = rawUrl.startsWith('mailto:') ? rawUrl : `mailto:${rawUrl}`;
+          } else {
+            try {
+              const u = new URL(rawUrl, window.location.origin);
+              if (u.protocol === 'http:' || u.protocol === 'https:') {
+                href = u.href;
+              }
+            } catch (e) {
+              href = '';
+            }
+          }
+          if (!href) {
+            return;
+          }
           const a = document.createElement('a');
-          // 处理邮箱链接
-          a.href = link.platform.toLowerCase() === 'email' && !link.url.startsWith('mailto:') 
-            ? `mailto:${link.url}` 
-            : link.url;
+          a.href = href;
           a.className = 'social-link';
           a.target = '_blank';
           a.rel = 'noopener noreferrer';
-          a.innerHTML = socialIcons[link.platform.toLowerCase()] || socialIcons.github;
+          a.innerHTML = socialIcons[platform] || socialIcons.github;
           a.title = link.platform;
           socialLinksContainer.appendChild(a);
         });

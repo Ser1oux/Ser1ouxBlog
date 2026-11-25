@@ -345,7 +345,8 @@
   <!-- 页面底部版权信息 -->
 
 
-  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="/public/vendor/marked.min.js"></script>
+  <script src="/public/vendor/purify.min.js"></script>
   <script>
     if (typeof siteDisplayName !== 'function') {
       window.siteDisplayName = function(s) {
@@ -372,9 +373,9 @@
           const aboutData = await aboutRes.json();
           document.getElementById('aboutTitle').textContent = aboutData.title || '关于本站';
           
-          // 使用 marked.js 渲染 Markdown
+          // 使用 marked.js 渲染 Markdown，并经过 DOMPurify 清洗
           const contentElement = document.getElementById('aboutContent');
-          contentElement.innerHTML = marked.parse(aboutData.content || '');
+          contentElement.innerHTML = DOMPurify.sanitize(marked.parse(aboutData.content || ''), { USE_PROFILES: { html: true } });
         } else {
           document.getElementById('aboutContent').innerHTML = '<p>暂无内容</p>';
         }

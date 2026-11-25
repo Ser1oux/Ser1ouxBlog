@@ -1,0 +1,21 @@
+# 构建上下文排除项：避免把 .git、运行数据（含 SMTP 密码与 bcrypt 哈希）、
+# 本地密钥和本机构建产物打进镜像层。
+.git
+.gitignore
+.github
+data
+.tools
+*.exe
+*.test
+*.out
+*.log
+*.tar.gz
+*.zip
+secret.env
+.env
+*.pem
+*.key
+.vscode
+.idea
+.DS_Store
+Thumbs.db

@@ -61,7 +61,9 @@ func saveNotificationsUnlocked(store *notificationStore) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(notificationsFilePath(), data, 0644)
+	// 原子写：裸 os.WriteFile 在崩溃/磁盘满时会留下半截 JSON，
+	// 之后每次读取都失败，通知功能会永久静默失效。
+	return writeFileAtomic(notificationsFilePath(), data, 0600)
 }
 
 func addNotifications(items []Notification) error {
@@ -190,18 +192,27 @@ func clipRunes(s string, n int) string {
 	return string([]rune(s)[:n]) + "…"
 }
 
+// publicBaseURL 生成邮件里的绝对链接。
+// 优先 SITE_URL；未配置时只在 TRUST_PROXY=1 下采信 X-Forwarded-*，
+// 否则退回 Host，避免游客用伪造的转发头把站长引到钓鱼域名。
 func publicBaseURL(r *http.Request) string {
+	if siteBaseURL != "" {
+		return siteBaseURL
+	}
 	scheme := "http"
-	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
-		scheme = proto
-	} else if r.TLS != nil {
+	if r.TLS != nil {
 		scheme = "https"
 	}
-	host := r.Header.Get("X-Forwarded-Host")
-	if host == "" {
-		host = r.Host
+	host := r.Host
+	if trustProxy {
+		if proto := strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")); proto == "https" || proto == "http" {
+			scheme = proto
+		}
+		if fwd := strings.TrimSpace(r.Header.Get("X-Forwarded-Host")); fwd != "" {
+			host = strings.TrimSpace(strings.Split(fwd, ",")[0])
+		}
 	}
-	host = strings.TrimSpace(strings.Split(host, ",")[0])
+	host = sanitizeHostHeader(host)
 	if host == "" {
 		return ""
 	}
@@ -273,9 +284,10 @@ func notifyNewComment(metadata *Metadata, post Post, comment Comment, commenter 
 		to := u.Email
 		subject := siteName + " - " + title
 		body := fmtNotifyEmail(userDisplayName(u), fromName, post.Title, excerpt, fullLink, kind)
-		go func(toAddr, subj, text string) {
-			_ = sendEmail(metadata.SMTP, toAddr, subj, text)
-		}(to, subject, body)
+		smtpCfg := metadata.SMTP
+		sendEmailAsync(func() {
+			_ = sendEmail(smtpCfg, to, subject, body)
+		})
 	}
 }
 

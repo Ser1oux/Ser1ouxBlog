@@ -1,15 +1,31 @@
-version: '3.8'
-
 services:
   gl-blog:
     build: .
     container_name: gl-blog
+    # 只绑定本机回环：外部访问应经过 Nginx/Caddy 反向代理并启用 HTTPS。
+    # 需要局域网直连时改成 "3000:3000"，但请先阅读 README 的安全说明。
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
+      # bind mount 不会继承镜像里的属主，首次启动前请在宿主机执行：
+      #   mkdir -p data && sudo chown -R 10001:10001 data
       - ./data:/app/data
     environment:
       - TZ=Asia/Shanghai
+      # 生产环境必须显式设置：不设置会随机生成，重启后所有登录失效。
+      # 生成方式：openssl rand -hex 32
+      # - SESSION_SECRET=${SESSION_SECRET}
+      # 只有前面确实有可信反向代理时才开启；否则限流会被伪造的 X-Forwarded-For 绕过。
+      # - TRUST_PROXY=1
+      # 邮件里的绝对链接优先使用该地址（例如 https://blog.example.com）。
+      # - SITE_URL=https://blog.example.com
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
@@ -17,4 +33,3 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
-

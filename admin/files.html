@@ -505,20 +505,29 @@
         }
 
         const grid = document.getElementById('fileGrid');
+        // 文件名来自上传，进入 HTML/属性/内联事件前必须转义；
+        // 内联事件改为读取 data-*，避免单引号闭合 JS 字符串。
+        const esc = (s) => String(s)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+
         grid.innerHTML = files.map(file => {
           const isImage = /\.(jpg|jpeg|png|gif|webp)$/i.test(file.name);
           
           return `
             <div class="file-item">
               ${isImage ? 
-                `<img src="${file.url}" class="file-preview" alt="${file.name}">` :
+                `<img src="${esc(file.url)}" class="file-preview" alt="${esc(file.name)}">` :
                 `<div class="file-icon">${getFileIcon(file.name)}</div>`
               }
-              <div class="file-name" title="${file.name}">${file.name}</div>
+              <div class="file-name" title="${esc(file.name)}">${esc(file.name)}</div>
               <div class="file-size">${formatFileSize(file.size)}</div>
               <div class="file-actions">
-                <button class="btn btn-primary" onclick="copyUrl('${file.url}')">复制链接</button>
-                <button class="btn btn-danger" onclick="deleteFile('${file.name}')">删除</button>
+                <button class="btn btn-primary" data-copy="${esc(file.url)}" onclick="copyUrl(this.dataset.copy)">复制链接</button>
+                <button class="btn btn-danger" data-name="${esc(file.name)}" onclick="deleteFile(this.dataset.name)">删除</button>
               </div>
             </div>
           `;

@@ -30,7 +30,13 @@ type searchResult struct {
 // searchPosts GET /api/search?q=关键字
 // 标题/分类/标签/摘要/正文全文匹配（大小写不敏感），返回按日期倒序的命中列表。
 func searchPosts(w http.ResponseWriter, r *http.Request) {
+	if !rateLimitAllow(w, "search:"+getClientIP(r), 60, time.Minute) {
+		return
+	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	if runes := []rune(q); len(runes) > 100 {
+		q = string(runes[:100])
+	}
 	results := []searchResult{}
 	if q != "" {
 		if metadata, err := loadMetadata(); err == nil {
@@ -40,8 +46,8 @@ func searchPosts(w http.ResponseWriter, r *http.Request) {
 			for i := range posts {
 				p := posts[i]
 				content := ""
-				if data, err := os.ReadFile(filepath.Join(postsDir, p.ID+".md")); err == nil {
-					content = string(data)
+				if data, err := readPostContent(p.ID); err == nil {
+					content = data
 				}
 				matched := strings.Contains(strings.ToLower(p.Title), ql) ||
 					strings.Contains(strings.ToLower(p.Category), ql) ||
@@ -315,7 +321,7 @@ func bumpDailyVisitor() {
 	if err != nil {
 		return
 	}
-	_ = writeFileAtomic(statsFile, data, 0644)
+	_ = writeFileAtomic(statsFile, data, 0600)
 }
 
 // getVisitorStats GET /api/visitor-stats —— 最近 30 天访问量（公开）

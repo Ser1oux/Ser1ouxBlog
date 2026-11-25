@@ -420,11 +420,21 @@
     }
 
     // 登录后跳转：支持 ?redirect=/post/xxx
+    // 只接受同源、以 / 开头的相对路径；必须用 URL 解析而不是字符串前缀判断，
+    // 否则 `/\evil.com` 会通过旧校验，被浏览器规范化成 //evil.com 跳去外站。
     function getPostLoginRedirect() {
       const params = new URLSearchParams(window.location.search);
       const redirect = params.get('redirect') || '';
-      if (redirect.startsWith('/') && !redirect.startsWith('//') && !redirect.includes('://')) {
-        return redirect;
+      if (!redirect.startsWith('/')) {
+        return '/';
+      }
+      try {
+        const target = new URL(redirect, window.location.origin);
+        if (target.origin === window.location.origin) {
+          return target.pathname + target.search + target.hash;
+        }
+      } catch (e) {
+        // 解析失败按安全默认处理
       }
       return '/';
     }

@@ -1,13 +1,25 @@
-# 运行镜像：复用已有的 blog-gl-blog:latest（含 alpine + 证书 + 时区数据）
-# 只替换应用二进制与 BG 静态资源，避免重新拉取 golang 基础镜像
-FROM blog-gl-blog:latest
+# 运行镜像：使用本地预编译的 Linux 二进制，不再依赖“本机某个自定义镜像名”。
+#
+# 先构建二进制（必须是 linux/目标架构）：
+#   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o gl-blog .
+# 再构建镜像：
+#   docker build -f Dockerfile.runtime -t ser1ouxblog:latest .
+FROM alpine:3.21
+
+RUN apk --no-cache add ca-certificates tzdata
 
 WORKDIR /app
 
-COPY gl-blog-new /app/gl-blog
+COPY gl-blog /app/gl-blog
 COPY BG/ /app/BG/
 
-RUN chmod +x /app/gl-blog
+RUN chmod +x /app/gl-blog \
+    && addgroup -S -g 10001 app \
+    && adduser -S -u 10001 -G app app \
+    && mkdir -p /app/data/posts /app/data/uploads \
+    && chown -R app:app /app
+
+USER app
 
 EXPOSE 3000
 
